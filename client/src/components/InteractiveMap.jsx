@@ -324,7 +324,29 @@ export default function InteractiveMap({
 
     onMapMove({ lat: initialLat, lng: initialLon }, initialZoom);
 
+    // Progressive resize triggers to ensure full viewport fill inside flexbox
+    requestAnimationFrame(() => map.resize());
+    const t1 = setTimeout(() => map.resize(), 150);
+    const t2 = setTimeout(() => map.resize(), 600);
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+    });
+
+    if (mapContainer.current) {
+      resizeObserver.observe(mapContainer.current);
+    }
+
+    map.on('error', (e) => {
+      console.warn('[MapLibre Map Warning]:', e.error?.message || e);
+    });
+
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -735,8 +757,8 @@ export default function InteractiveMap({
   }, [isEditing, geometry, onGeometryChange]);
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full bg-[#F1F5F9]" />
+    <div className="relative w-full h-full min-h-full overflow-hidden">
+      <div ref={mapContainer} className="absolute inset-0 w-full h-full bg-[#F1F5F9]" />
 
       {/* Floating Drawing Helper Hint */}
       {drawMode !== 'none' && (
@@ -756,8 +778,8 @@ export default function InteractiveMap({
         </div>
       )}
 
-      {/* Swipe Comparison Vertical Divider Overlay */}
-      {comparisonMode === 'swipe' && (
+      {/* Swipe Comparison Vertical Divider Overlay (Only active when comparison results exist and swipe mode is chosen) */}
+      {comparisonMode === 'swipe' && Boolean(changeMaskGeoJSON || firstObservation) && (
         <div
           className="absolute top-0 bottom-0 pointer-events-none z-10"
           style={{ left: `${swipePosition}%` }}

@@ -28,7 +28,7 @@ export default function App() {
 
   // Phase 4: Radar Processing & Visualization State
   const [radarResults, setRadarResults] = useState(null);
-  const [comparisonMode, setComparisonMode] = useState('swipe'); // 'before' | 'after' | 'swipe'
+  const [comparisonMode, setComparisonMode] = useState('none'); // 'none' | 'before' | 'after' | 'swipe'
   const [swipePosition, setSwipePosition] = useState(50);
   const [showChangeMask, setShowChangeMask] = useState(true);
 
@@ -132,7 +132,7 @@ export default function App() {
       <Header currentCenter={currentCenter} currentZoom={currentZoom} />
 
       {/* Main Map Container with Minimal Floating Overlays */}
-      <main className="relative flex-1 w-full h-full overflow-hidden">
+      <main className="relative flex-1 w-full min-h-0 overflow-hidden">
         {/* Full-bleed Interactive Map with Drawing, Swaths, Change Mask & Swipe */}
         <InteractiveMap
           basemap={basemap}
