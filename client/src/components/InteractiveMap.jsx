@@ -69,6 +69,13 @@ export default function InteractiveMap({
   onGeometryChange,
   isEditing = false,
   retrievedSwaths = [],
+  changeMaskGeoJSON = null,
+  showChangeMask = true,
+  comparisonMode = 'before', // 'before' | 'after' | 'swipe'
+  swipePosition = 50,
+  onChangeSwipePosition,
+  firstObservation = null,
+  secondObservation = null
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -265,9 +272,47 @@ export default function InteractiveMap({
         });
       }
 
-      // Sync existing geometry & swaths if present
+      // 6. Radar Detected Change Mask Layer (Cyan)
+      if (!map.getSource('radar-change-mask-source')) {
+        map.addSource('radar-change-mask-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        map.addLayer({
+          id: 'radar-change-mask-fill',
+          type: 'fill',
+          source: 'radar-change-mask-source',
+          layout: {
+            visibility: showChangeMask ? 'visible' : 'none'
+          },
+          paint: {
+            'fill-color': '#0891B2',
+            'fill-opacity': 0.38
+          }
+        });
+
+        map.addLayer({
+          id: 'radar-change-mask-stroke',
+          type: 'line',
+          source: 'radar-change-mask-source',
+          layout: {
+            visibility: showChangeMask ? 'visible' : 'none'
+          },
+          paint: {
+            'line-color': '#0891B2',
+            'line-width': 2.0
+          }
+        });
+      }
+
+      // Sync existing geometry, swaths & change mask if present
       syncGeometryToMap();
       syncRetrievedSwaths();
+      syncChangeMask();
     };
 
     map.on('style.load', setupLayers);
@@ -354,6 +399,38 @@ export default function InteractiveMap({
   useEffect(() => {
     syncRetrievedSwaths();
   }, [retrievedSwaths, syncRetrievedSwaths]);
+
+  // Sync Change Mask to Map Source
+  const syncChangeMask = useCallback(() => {
+    if (!mapRef.current) return;
+    const source = mapRef.current.getSource('radar-change-mask-source');
+    if (!source) return;
+
+    if (changeMaskGeoJSON && changeMaskGeoJSON.features) {
+      source.setData(changeMaskGeoJSON);
+    } else {
+      source.setData({
+        type: 'FeatureCollection',
+        features: []
+      });
+    }
+  }, [changeMaskGeoJSON]);
+
+  useEffect(() => {
+    syncChangeMask();
+  }, [changeMaskGeoJSON, syncChangeMask]);
+
+  // Update Change Mask visibility
+  useEffect(() => {
+    if (!mapRef.current || !mapRef.current.isStyleLoaded()) return;
+    const visibility = showChangeMask ? 'visible' : 'none';
+    if (mapRef.current.getLayer('radar-change-mask-fill')) {
+      mapRef.current.setLayoutProperty('radar-change-mask-fill', 'visibility', visibility);
+    }
+    if (mapRef.current.getLayer('radar-change-mask-stroke')) {
+      mapRef.current.setLayoutProperty('radar-change-mask-stroke', 'visibility', visibility);
+    }
+  }, [showChangeMask]);
 
   // Update Basemap Style dynamically
   useEffect(() => {
@@ -676,6 +753,30 @@ export default function InteractiveMap({
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Swipe Comparison Vertical Divider Overlay */}
+      {comparisonMode === 'swipe' && (
+        <div
+          className="absolute top-0 bottom-0 pointer-events-none z-10"
+          style={{ left: `${swipePosition}%` }}
+        >
+          {/* Vertical divider line */}
+          <div className="w-0.5 h-full bg-accent shadow-[0_0_8px_rgba(8,145,178,0.6)]" />
+
+          {/* Draggable-feel handle in the center */}
+          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white border-2 border-accent shadow-lg flex items-center justify-center text-accent pointer-events-auto cursor-ew-resize">
+            <span className="text-[11px] font-bold">⇄</span>
+          </div>
+
+          {/* Before / After Floating Badges */}
+          <div className="absolute top-16 -left-28 bg-white/90 backdrop-blur-sm border border-borderCol px-2 py-0.5 rounded shadow-sm text-[10px] font-semibold text-slate-700 pointer-events-none">
+            ◀ T₁ Baseline
+          </div>
+          <div className="absolute top-16 left-3 bg-white/90 backdrop-blur-sm border border-borderCol px-2 py-0.5 rounded shadow-sm text-[10px] font-semibold text-slate-700 pointer-events-none">
+            T₂ Target ▶
+          </div>
         </div>
       )}
     </div>

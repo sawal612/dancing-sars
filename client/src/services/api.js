@@ -194,6 +194,29 @@ export async function prepareNisarDownloadAPI(payload) {
 }
 
 /**
+ * Phase 4: Execute Radar Change Detection on verified observation pair
+ */
+export async function executeRadarComparisonAPI(payload) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/processing/compare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    return {
+      success: res.ok,
+      ...data
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message || 'Failed to execute radar change detection'
+    };
+  }
+}
+
+/**
  * Frontend self health check
  */
 export function getFrontendHealth() {

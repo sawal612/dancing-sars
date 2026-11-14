@@ -24,7 +24,8 @@ import {
   validateGeometryAPI,
   submitComparisonRequestAPI,
   pairNisarObservationsAPI,
-  fetchNisarSamples
+  fetchNisarSamples,
+  executeRadarComparisonAPI
 } from '../services/api';
 import ObservationDetails from './ObservationDetails';
 
@@ -38,7 +39,9 @@ export default function ComparisonPanel({
   selectedLocation,
   onComparisonSubmitted,
   onObservationsDiscovered,
-  onLoadSampleRegion
+  onLoadSampleRegion,
+  onProcessingComplete,
+  isProcessingRadar = false
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -158,6 +161,36 @@ export default function ComparisonPanel({
 
     if (onObservationsDiscovered) {
       onObservationsDiscovered(res);
+    }
+  };
+
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingError, setProcessingError] = useState(null);
+
+  // Run Radar Change Detection
+  const handleRunChangeDetection = async () => {
+    if (!nisarPairResult?.firstObservation?.primaryCandidate || !nisarPairResult?.secondObservation?.primaryCandidate) {
+      return;
+    }
+    setIsProcessing(true);
+    setProcessingError(null);
+
+    const payload = {
+      firstObservation: nisarPairResult.firstObservation.primaryCandidate,
+      secondObservation: nisarPairResult.secondObservation.primaryCandidate,
+      geometry,
+      settings: { thresholdDb: -3.2, changeCategory }
+    };
+
+    const res = await executeRadarComparisonAPI(payload);
+    setIsProcessing(false);
+
+    if (res.success) {
+      if (onProcessingComplete) {
+        onProcessingComplete(res);
+      }
+    } else {
+      setProcessingError(res.error || 'Radar processing failed');
     }
   };
 
@@ -502,7 +535,34 @@ export default function ComparisonPanel({
                 </div>
               )}
 
-              {/* Prepare Data for Processing Phase */}
+              {/* Execute Radar Change Detection */}
+              {nisarPairResult.completePairAvailable ? (
+                <button
+                  onClick={handleRunChangeDetection}
+                  disabled={isProcessing}
+                  className="w-full py-2.5 px-3 rounded-md text-xs font-semibold bg-accent hover:bg-accent-dark text-white flex items-center justify-center gap-2 transition shadow-md"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Computing Log-Ratio Difference...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Droplets className="w-4 h-4" />
+                      <span>Run Radar Change Detection</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+
+              {processingError && (
+                <div className="p-2 rounded bg-red-50 border border-red-200 text-[10px] text-red-700">
+                  {processingError}
+                </div>
+              )}
+
+              {/* Prepare Data Package */}
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}

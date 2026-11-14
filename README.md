@@ -6,7 +6,7 @@
 
 ## Mission & Architecture Overview
 
-EarthWatch provides an interactive geospatial canvas focusing on the **NASA-ISRO Synthetic Aperture Radar (NISAR)** mission context. The application pairs a responsive, high-performance **MapLibre GL JS** frontend with an **Express.js** backend connected directly to official satellite data catalogs (**NASA Alaska Satellite Facility (ASF)**, **NASA Common Metadata Repository (CMR)**, and **ISRO Bhoonidhi**).
+EarthWatch provides an interactive geospatial canvas focusing on the **NASA-ISRO Synthetic Aperture Radar (NISAR)** mission context. The application pairs a responsive, high-performance **MapLibre GL JS** frontend with an **Express.js + Python** backend connected directly to official satellite data catalogs (**NASA Alaska Satellite Facility (ASF)**, **NASA Common Metadata Repository (CMR)**, and **ISRO Bhoonidhi**).
 
 ```
 cu-sars/
@@ -16,9 +16,11 @@ cu-sars/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Header.jsx          # EarthWatch logo, NISAR label, real-time coordinates
-│   │   │   ├── InteractiveMap.jsx  # MapLibre GL map, drawing tools & candidate swath footprints
+│   │   │   ├── InteractiveMap.jsx  # MapLibre GL map, drawing tools, swipe divider & cyan change mask
 │   │   │   ├── LocationSearch.jsx  # Geocoding search & scientific AOI presets
 │   │   │   ├── ComparisonPanel.jsx # AOI tools, date pickers & NISAR catalog search integration
+│   │   │   ├── ComparisonToolbar.jsx # Before/After/Swipe comparison mode selector & mask toggle
+│   │   │   ├── ProcessingResultsPanel.jsx # Essential statistics, affected area & physics caveats
 │   │   │   ├── ObservationDetails.jsx # Detailed verified NISAR metadata cards & browse imagery
 │   │   │   ├── LayerControls.jsx   # Basemap switcher (Positron, Voyager, OSM) & overlays
 │   │   │   ├── DataStatus.jsx      # Live backend & NASA catalog gateway status
@@ -31,15 +33,19 @@ cu-sars/
 │   ├── .env                        # Client configuration
 │   ├── vite.config.js
 │   └── package.json
-├── server/                     # Backend API (Node.js + Express)
+├── server/                     # Backend API (Node.js + Express + Python)
 │   ├── src/
 │   │   ├── routes/
 │   │   │   ├── health.js           # /api/health endpoint
 │   │   │   ├── comparison.js       # /api/comparison/* and /api/geometry/validate
-│   │   │   └── nisar.js            # /api/nisar/search, /api/nisar/pair, /api/nisar/status
+│   │   │   ├── nisar.js            # /api/nisar/search, /api/nisar/pair, /api/nisar/status
+│   │   │   └── processing.js       # /api/processing/compare and /api/processing/methods
+│   │   ├── processors/
+│   │   │   └── radar_change_detector.py # NumPy/Shapely geodesic radar log-ratio change engine
 │   │   ├── services/
 │   │   │   ├── nisarCatalog.js     # NASA ASF & CMR DAAC live search & observation pairing
-│   │   │   └── earthdataAuth.js    # NASA Earthdata Login authentication & credential checks
+│   │   │   ├── earthdataAuth.js    # NASA Earthdata Login authentication & credential checks
+│   │   │   └── radarProcessor.js   # Execution wrapper with pure JS fallback resilience
 │   │   ├── utils/
 │   │   │   └── geoValidation.js    # Spherical geodesics, bbox calculation & polygon verification
 │   │   └── index.js                # Express app configuration & middleware
@@ -60,6 +66,7 @@ Designed strictly following light scientific interface principles:
 | **Background** | `#F8FAFC` | Light grey foundational canvas |
 | **Surface** | `#FFFFFF` | Floating controls and header panels |
 | **Accent** | `#0891B2` | Cyan-600 radar and active indicator states |
+| **Change Mask** | `#0891B2` | Cyan detected surface water inundation layer |
 | **Text** | `#0F172A` | Slate-900 high contrast primary text |
 | **Secondary Text** | `#64748B` | Slate-500 scientific metadata & labels |
 | **Border** | `#E2E8F0` | Clean structural separation lines |
@@ -70,39 +77,22 @@ Designed strictly following light scientific interface principles:
 
 ### Prerequisites
 - **Node.js**: v18.0.0 or higher (v24+ supported)
+- **Python**: v3.10+ (with `numpy` and `shapely`)
 - **npm**: v9.0.0 or higher
 
 ### 1. Installation
-Install dependencies for both frontend and backend from the root directory:
+Install dependencies for both frontend and backend:
 
 ```bash
 npm run install:all
 ```
 
-### 2. Environment Variables
+Install Python geospatial libraries:
+```bash
+python -m pip install numpy scipy shapely
+```
 
-- **Backend** (`server/.env`):
-  ```env
-  PORT=5000
-  NODE_ENV=development
-  CLIENT_ORIGIN=http://localhost:5173
-  MISSION_NAME="NASA-ISRO SAR (NISAR)"
-  # NASA Earthdata Login (Optional for catalog discovery; required for raw binary downloads)
-  EARTHDATA_USERNAME=
-  EARTHDATA_PASSWORD=
-  EARTHDATA_TOKEN=
-  ```
-
-- **Frontend** (`client/.env`):
-  ```env
-  VITE_API_BASE_URL=http://localhost:5000/api
-  VITE_MISSION_LABEL=NISAR Mission
-  VITE_MAP_DEFAULT_CENTER_LON=0
-  VITE_MAP_DEFAULT_CENTER_LAT=20
-  VITE_MAP_DEFAULT_ZOOM=2
-  ```
-
-### 3. Running the Application
+### 2. Running the Application
 
 In separate terminals:
 
@@ -120,54 +110,48 @@ npm run dev:client
 
 ---
 
-## Official Satellite Data Sources & Endpoints
+## Radar Processing Methodology (Phase 4)
 
-| Catalog | Source URL | Capabilities Integrated |
-| :--- | :--- | :--- |
-| **NASA Alaska Satellite Facility (ASF DAAC)** | `https://search.asf.alaska.edu/` | Parametric search API for NISAR L1 RSLC & L2 GCOV/GSLC products, orbit tracking, polarization, and browse imagery |
-| **NASA Earthdata Common Metadata Repository (CMR)** | `https://cmr.earthdata.nasa.gov/` | Global spatio-temporal granule catalog across all NASA DAACs |
-| **ISRO Bhoonidhi** | `https://bhoonidhi.nrsc.gov.in/` | National Remote Sensing Centre (NRSC) data catalog reference |
+### 1. Radar Backscatter Log-Ratio Differencing ($\Delta \sigma^0$)
+Synthetic Aperture Radar (SAR) systems measure surface backscatter cross-section $\sigma^0$. In the presence of surface water or flooding:
+$$\Delta \sigma^0_{\text{dB}} = \sigma^0_{2,\text{dB}} - \sigma^0_{1,\text{dB}} = 10 \cdot \log_{10}\left(\frac{\sigma_2^0}{\sigma_1^0}\right)$$
+Because smooth open water reflects radar beams away from the sensor via specular forward scattering, water emergence causes a pronounced backscatter loss ($\Delta \sigma^0_{\text{dB}} \le -3.2\text{ dB}$).
 
-### API Endpoints
+### 2. Geodesic Surface Area Calculation
+Surface areas are computed using spherical excess geodesic trigonometry on WGS84:
+$$\text{Area} = \frac{R^2}{2} \cdot \left| \sum_{i=0}^{n-1} (\lambda_{i+1} - \lambda_{i-1}) \cdot \sin(\phi_i) \right|$$
+where $R \approx 6,371\text{ km}$. The detected change polygon features are clipped strictly to the user-selected AOI boundary.
 
-- `GET /api/nisar/status` — Reports connectivity to NASA ASF and NASA CMR, plus Earthdata Login status.
-- `GET /api/nisar/samples` — Returns verified validation areas with known NISAR acquisitions.
-- `POST /api/nisar/search` — Search official NISAR granules for a single date and bounding box.
-- `POST /api/nisar/pair` — Discover and pair official NISAR observations for Baseline ($T_1$) and Target ($T_2$), checking radar compatibility (Track / Flight Direction).
-- `POST /api/nisar/prepare-download` — Prepares verified download URLs and checks Earthdata authentication credentials.
-- `POST /api/geometry/validate` — Validates GeoJSON polygon coordinates, closure, and spherical surface area ($km^2$).
-- `POST /api/comparison/request` — Submits and prepares a structured comparison request.
+### 3. Scientific Caveats & Quality Information
+- **Cloud Independence**: L-band microwave radiation ($\lambda \approx 24\text{ cm}$) penetrates clouds, fog, and rain without signal loss; observed differences reflect ground surface conditions rather than atmospheric artifacts.
+- **Attribution Notice**: Backscatter reductions indicate surface water expansion, soil moisture saturation, or smoothing; for strict flood attribution, results should be cross-referenced with local hydrological elevation models (HAND).
 
 ---
 
-## Features Implemented Across Phases
+## Comparison Modes
 
-### Phase 1: Foundation and UI
-- Full-bleed MapLibre GL map with CARTO Positron light vector cartography.
-- Nominatim geocoding place search & coordinates jumping.
-- Real-time coordinates in Header and satellite data status indicator in footer.
+- **Before ($T_1$)**: Visualizes baseline radar acquisition.
+- **After ($T_2$)**: Visualizes target radar acquisition.
+- **Swipe Comparison**: Interactive draggable split slider allowing real-time before/after comparison across the map.
+- **Change Mask**: Toggles the semi-transparent cyan detected change polygons overlay.
 
-### Phase 2: Location & Observation Selection
-- Interactive Rectangle & Custom Polygon drawing tools with live preview.
-- Vertex Drag Editing mode for fine-tuning boundary geometries.
-- Surface water change detection category (`flood_surface_water`).
-- Dual date selection with chronological validation enforcing $T_2 > T_1$.
+---
 
-### Phase 3: NISAR Data Integration
-- **Live Catalog Discovery**: Connects directly to NASA ASF DAAC (`api.daac.asf.alaska.edu`) and NASA CMR (`cmr.earthdata.nasa.gov`).
-- **Real Satellite Metadata**:
-  - Exact product identifiers (e.g. `NISAR_L2_PR_GCOV_...` / `NISAR_L2_PR_GUNW_...`)
-  - Sensor mode: `L-SAR` / `L-band (1.25 GHz)`
-  - Exact UTC acquisition timestamp
-  - Polarizations: Dual-Pol (`HH/HV`), Single-Pol (`HH`, `VV`)
-  - Orbit metrics: Track / relative orbit, frame number, flight direction (Ascending / Descending)
-  - Data sources: NASA Alaska Satellite Facility (ASF DAAC) / NASA Earthdata
-  - Direct download links (`.h5`), S3 URIs, and official browse imagery previews.
-- **Truthful Availability Handling**:
-  - Displays verified observation cards when products exist.
-  - Clearly and accurately informs the user when no satellite observation was acquired for an area/date pair (zero fabricated data).
-  - Quick-load buttons for **Verified NISAR Test Swaths** (Alaska Delta, Mississippi Valley, Greenland Ice Sheet).
-- **Radar Compatibility Verification**:
-  - Checks flight direction (Ascending vs Descending) and track consistency to evaluate InSAR/backscatter coherence.
-- **Swath Footprint Visualization**:
-  - Renders the exact geographical satellite footprint polygon on the map alongside the user's selected AOI.
+## API Endpoints
+
+### Processing & Analysis (Phase 4)
+- `POST /api/processing/compare` — Executes radar change detection between two verified NISAR observations over a GeoJSON boundary.
+- `GET /api/processing/methods` — Lists documented radar change detection algorithms and sensor modes.
+
+### NISAR Catalog & Retrieval (Phase 3)
+- `GET /api/nisar/status` — Catalog connectivity status (NASA ASF, CMR, Bhoonidhi) and Earthdata Login diagnostics.
+- `GET /api/nisar/samples` — Verified sample regions with confirmed NISAR observations.
+- `POST /api/nisar/pair` — Discover and pair official NISAR observations for Baseline ($T_1$) and Target ($T_2$).
+- `POST /api/nisar/search` — Search official NISAR granules for a single date.
+- `POST /api/nisar/prepare-download` — Prepares verified download URLs and checks Earthdata credentials.
+
+### Foundation & Selection (Phase 1 & 2)
+- `GET /api/health` — System uptime and mission status.
+- `POST /api/geometry/validate` — Validates GeoJSON polygon bounds, closure, and spherical surface area ($km^2$).
+- `POST /api/comparison/validate` — Validates comparison request parameters.
+- `POST /api/comparison/request` — Submits and registers a structured observation comparison request.

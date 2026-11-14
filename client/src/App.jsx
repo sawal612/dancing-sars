@@ -4,6 +4,8 @@ import InteractiveMap from './components/InteractiveMap';
 import LocationSearch from './components/LocationSearch';
 import LayerControls from './components/LayerControls';
 import ComparisonPanel from './components/ComparisonPanel';
+import ComparisonToolbar from './components/ComparisonToolbar';
+import ProcessingResultsPanel from './components/ProcessingResultsPanel';
 import DataStatus from './components/DataStatus';
 import Footer from './components/Footer';
 
@@ -23,6 +25,12 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [submittedComparison, setSubmittedComparison] = useState(null);
   const [retrievedSwaths, setRetrievedSwaths] = useState([]);
+
+  // Phase 4: Radar Processing & Visualization State
+  const [radarResults, setRadarResults] = useState(null);
+  const [comparisonMode, setComparisonMode] = useState('swipe'); // 'before' | 'after' | 'swipe'
+  const [swipePosition, setSwipePosition] = useState(50);
+  const [showChangeMask, setShowChangeMask] = useState(true);
 
   const mapInstanceRef = useRef(null);
 
@@ -111,14 +119,21 @@ export default function App() {
     }
   }, []);
 
+  // Handle Radar Change Detection Completion
+  const handleProcessingComplete = useCallback((results) => {
+    setRadarResults(results);
+    setComparisonMode('swipe');
+    setShowChangeMask(true);
+  }, []);
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-background overflow-hidden select-none">
+    <div className="flex flex-col h-screen w-screen bg-background overflow-hidden select-none font-sans">
       {/* Header */}
       <Header currentCenter={currentCenter} currentZoom={currentZoom} />
 
       {/* Main Map Container with Minimal Floating Overlays */}
       <main className="relative flex-1 w-full h-full overflow-hidden">
-        {/* Full-bleed Interactive Map with Drawing & Swath Footprints */}
+        {/* Full-bleed Interactive Map with Drawing, Swaths, Change Mask & Swipe */}
         <InteractiveMap
           basemap={basemap}
           layers={layers}
@@ -128,9 +143,19 @@ export default function App() {
           drawMode={drawMode}
           onDrawModeChange={setDrawMode}
           geometry={geometry}
-          onGeometryChange={setGeometry}
+          onGeometryChange={(newGeom) => {
+            setGeometry(newGeom);
+            setRadarResults(null);
+          }}
           isEditing={isEditing}
           retrievedSwaths={retrievedSwaths}
+          changeMaskGeoJSON={radarResults?.changeMask}
+          showChangeMask={showChangeMask}
+          comparisonMode={comparisonMode}
+          swipePosition={swipePosition}
+          onChangeSwipePosition={setSwipePosition}
+          firstObservation={radarResults?.observations?.baseline}
+          secondObservation={radarResults?.observations?.target}
         />
 
         {/* Floating Controls Sidebar / Stack (Top-Left) */}
@@ -141,10 +166,13 @@ export default function App() {
             selectedLocationName={selectedLocation?.name}
           />
 
-          {/* Observation & Comparison Panel */}
+          {/* Observation Selection & NISAR Discovery Panel */}
           <ComparisonPanel
             geometry={geometry}
-            onGeometryChange={setGeometry}
+            onGeometryChange={(newGeom) => {
+              setGeometry(newGeom);
+              setRadarResults(null);
+            }}
             drawMode={drawMode}
             onDrawModeChange={setDrawMode}
             isEditing={isEditing}
@@ -153,6 +181,7 @@ export default function App() {
             onComparisonSubmitted={setSubmittedComparison}
             onObservationsDiscovered={handleObservationsDiscovered}
             onLoadSampleRegion={handleLoadSampleRegion}
+            onProcessingComplete={handleProcessingComplete}
           />
 
           {/* Basemap & Layer Controls Panel */}
@@ -166,6 +195,36 @@ export default function App() {
             onToggleGraticule={handleToggleGraticule}
           />
         </div>
+
+        {/* Comparison Viewer Toolbar (Top-Center) when Processing Results are Available */}
+        {radarResults && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+            <ComparisonToolbar
+              comparisonMode={comparisonMode}
+              onChangeComparisonMode={setComparisonMode}
+              showChangeMask={showChangeMask}
+              onToggleChangeMask={() => setShowChangeMask(!showChangeMask)}
+              swipePosition={swipePosition}
+              onChangeSwipePosition={setSwipePosition}
+              firstDate={radarResults?.statistics?.firstObservationDate}
+              secondDate={radarResults?.statistics?.secondObservationDate}
+            />
+          </div>
+        )}
+
+        {/* Radar Processing Results Panel (Top-Right) */}
+        {radarResults && (
+          <div className="absolute top-4 right-4 z-20 pointer-events-auto">
+            <ProcessingResultsPanel
+              results={radarResults}
+              onClose={() => setRadarResults(null)}
+              showChangeMask={showChangeMask}
+              onToggleChangeMask={() => setShowChangeMask(!showChangeMask)}
+              comparisonMode={comparisonMode}
+              onChangeComparisonMode={setComparisonMode}
+            />
+          </div>
+        )}
 
         {/* Small Satellite Data Status Indicator (Bottom-Left) */}
         <div className="absolute bottom-4 left-4 z-10 max-w-xs pointer-events-auto">
