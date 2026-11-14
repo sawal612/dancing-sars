@@ -240,3 +240,4 @@ router.get('/comparison/requests', (req, res) => {
 });
 
 export default router;
+

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, CheckCircle2, AlertTriangle, RefreshCw, Server } from 'lucide-react';
-import { fetchBackendHealth } from '../services/api';
+import { Activity, CheckCircle2, AlertTriangle, RefreshCw, Server, Satellite } from 'lucide-react';
+import { fetchBackendHealth, fetchNisarCatalogStatus } from '../services/api';
 
 export default function DataStatus() {
   const [health, setHealth] = useState({
@@ -9,24 +9,29 @@ export default function DataStatus() {
     data: null,
     error: null,
   });
+  const [catalogStatus, setCatalogStatus] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const checkHealth = async () => {
+  const checkStatus = async () => {
     setIsRefreshing(true);
-    const result = await fetchBackendHealth();
+    const [healthRes, catalogRes] = await Promise.all([
+      fetchBackendHealth(),
+      fetchNisarCatalogStatus()
+    ]);
+
     setHealth({
-      connected: result.connected,
+      connected: healthRes.connected,
       loading: false,
-      data: result.data || null,
-      error: result.error || null,
+      data: healthRes.data || null,
+      error: healthRes.error || null,
     });
+    setCatalogStatus(catalogRes);
     setIsRefreshing(false);
   };
 
   useEffect(() => {
-    checkHealth();
-    // Periodic check every 30 seconds
-    const interval = setInterval(checkHealth, 30000);
+    checkStatus();
+    const interval = setInterval(checkStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -48,24 +53,24 @@ export default function DataStatus() {
 
           <div className="flex flex-col">
             <span className="font-medium text-[11px] text-primaryText flex items-center gap-1.5">
-              <span>SAR Pipeline:</span>
+              <span>NASA ASF / NISAR Catalog:</span>
               <span className={health.connected ? 'text-accent font-semibold' : 'text-amber-600 font-semibold'}>
-                {health.connected ? 'Operational' : 'Backend Standby'}
+                {health.connected ? 'Connected' : 'Standby'}
               </span>
             </span>
-            <span className="text-[10px] text-secondaryText">
+            <span className="text-[10px] text-secondaryText truncate max-w-[210px]">
               {health.connected
-                ? `Node Engine Online • Mission: ${health.data?.mission || 'NISAR'}`
-                : 'Awaiting API connection at localhost:5000'}
+                ? 'NASA DAAC & CMR Gateway Live'
+                : 'Awaiting backend at localhost:5000'}
             </span>
           </div>
         </div>
 
         {/* Refresh button */}
         <button
-          onClick={checkHealth}
+          onClick={checkStatus}
           disabled={isRefreshing}
-          title="Refresh Backend Health Status"
+          title="Refresh Data Source & Backend Health"
           className="p-1 text-secondaryText hover:text-primaryText hover:bg-slate-100 rounded transition disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-accent' : ''}`} />
@@ -74,4 +79,3 @@ export default function DataStatus() {
     </div>
   );
 }
-

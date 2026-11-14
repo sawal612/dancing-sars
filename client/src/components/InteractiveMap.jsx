@@ -68,6 +68,7 @@ export default function InteractiveMap({
   geometry,
   onGeometryChange,
   isEditing = false,
+  retrievedSwaths = [],
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -232,8 +233,41 @@ export default function InteractiveMap({
         });
       }
 
-      // Sync existing geometry if present
+      // 5. Retrieved NISAR Observation Swaths Layer
+      if (!map.getSource('nisar-retrieved-swaths-source')) {
+        map.addSource('nisar-retrieved-swaths-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        map.addLayer({
+          id: 'nisar-retrieved-swaths-fill',
+          type: 'fill',
+          source: 'nisar-retrieved-swaths-source',
+          paint: {
+            'fill-color': '#0891B2',
+            'fill-opacity': 0.09
+          }
+        });
+
+        map.addLayer({
+          id: 'nisar-retrieved-swaths-stroke',
+          type: 'line',
+          source: 'nisar-retrieved-swaths-source',
+          paint: {
+            'line-color': '#0E7490',
+            'line-width': 1.8,
+            'line-dasharray': [3, 2]
+          }
+        });
+      }
+
+      // Sync existing geometry & swaths if present
       syncGeometryToMap();
+      syncRetrievedSwaths();
     };
 
     map.on('style.load', setupLayers);
@@ -282,6 +316,44 @@ export default function InteractiveMap({
   useEffect(() => {
     syncGeometryToMap();
   }, [geometry, syncGeometryToMap]);
+
+  // Sync Retrieved NISAR Swaths to Map Source
+  const syncRetrievedSwaths = useCallback(() => {
+    if (!mapRef.current) return;
+    const source = mapRef.current.getSource('nisar-retrieved-swaths-source');
+    if (!source) return;
+
+    if (retrievedSwaths && retrievedSwaths.length > 0) {
+      const features = retrievedSwaths
+        .filter((s) => s?.geographicalCoverage?.coordinates)
+        .map((s, idx) => ({
+          type: 'Feature',
+          properties: {
+            title: s.productIdentifier,
+            sensor: s.sensor,
+            date: s.acquisitionDate,
+          },
+          geometry: {
+            type: 'Polygon',
+            coordinates: s.geographicalCoverage.coordinates,
+          },
+        }));
+
+      source.setData({
+        type: 'FeatureCollection',
+        features,
+      });
+    } else {
+      source.setData({
+        type: 'FeatureCollection',
+        features: [],
+      });
+    }
+  }, [retrievedSwaths]);
+
+  useEffect(() => {
+    syncRetrievedSwaths();
+  }, [retrievedSwaths, syncRetrievedSwaths]);
 
   // Update Basemap Style dynamically
   useEffect(() => {

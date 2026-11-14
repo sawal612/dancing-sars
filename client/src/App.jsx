@@ -22,6 +22,7 @@ export default function App() {
   const [drawMode, setDrawMode] = useState('none'); // 'none' | 'rectangle' | 'polygon'
   const [isEditing, setIsEditing] = useState(false);
   const [submittedComparison, setSubmittedComparison] = useState(null);
+  const [retrievedSwaths, setRetrievedSwaths] = useState([]);
 
   const mapInstanceRef = useRef(null);
 
@@ -74,6 +75,42 @@ export default function App() {
     setShowGraticule((prev) => !prev);
   }, []);
 
+  // Handle Observations Discovered from NASA ASF
+  const handleObservationsDiscovered = useCallback((res) => {
+    const swaths = [];
+    if (res?.firstObservation?.primaryCandidate) {
+      swaths.push(res.firstObservation.primaryCandidate);
+    }
+    if (res?.secondObservation?.primaryCandidate) {
+      swaths.push(res.secondObservation.primaryCandidate);
+    }
+    setRetrievedSwaths(swaths);
+  }, []);
+
+  // Handle Loading a Verified Sample Test Swath
+  const handleLoadSampleRegion = useCallback((sample) => {
+    setSelectedLocation({ name: sample.name });
+    const [minLon, minLat, maxLon, maxLat] = sample.bbox;
+    const sampleCoords = [
+      [minLon, minLat],
+      [maxLon, minLat],
+      [maxLon, maxLat],
+      [minLon, maxLat],
+      [minLon, minLat]
+    ];
+    setGeometry({
+      type: 'Polygon',
+      coordinates: [sampleCoords]
+    });
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.fitBounds(
+        [[minLon, minLat], [maxLon, maxLat]],
+        { padding: 60, duration: 1800 }
+      );
+    }
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen bg-background overflow-hidden select-none">
       {/* Header */}
@@ -81,7 +118,7 @@ export default function App() {
 
       {/* Main Map Container with Minimal Floating Overlays */}
       <main className="relative flex-1 w-full h-full overflow-hidden">
-        {/* Full-bleed Interactive Map with Drawing & Editing */}
+        {/* Full-bleed Interactive Map with Drawing & Swath Footprints */}
         <InteractiveMap
           basemap={basemap}
           layers={layers}
@@ -93,6 +130,7 @@ export default function App() {
           geometry={geometry}
           onGeometryChange={setGeometry}
           isEditing={isEditing}
+          retrievedSwaths={retrievedSwaths}
         />
 
         {/* Floating Controls Sidebar / Stack (Top-Left) */}
@@ -113,6 +151,8 @@ export default function App() {
             onToggleEditing={() => setIsEditing(!isEditing)}
             selectedLocation={selectedLocation}
             onComparisonSubmitted={setSubmittedComparison}
+            onObservationsDiscovered={handleObservationsDiscovered}
+            onLoadSampleRegion={handleLoadSampleRegion}
           />
 
           {/* Basemap & Layer Controls Panel */}

@@ -14,9 +14,19 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
-  Droplets
+  Droplets,
+  Satellite,
+  Compass,
+  Sparkles,
+  ExternalLink
 } from 'lucide-react';
-import { validateGeometryAPI, validateComparisonAPI, submitComparisonRequestAPI } from '../services/api';
+import {
+  validateGeometryAPI,
+  submitComparisonRequestAPI,
+  pairNisarObservationsAPI,
+  fetchNisarSamples
+} from '../services/api';
+import ObservationDetails from './ObservationDetails';
 
 export default function ComparisonPanel({
   geometry,
@@ -26,36 +36,52 @@ export default function ComparisonPanel({
   isEditing,
   onToggleEditing,
   selectedLocation,
-  onComparisonSubmitted
+  onComparisonSubmitted,
+  onObservationsDiscovered,
+  onLoadSampleRegion
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   // Change category
   const [changeCategory] = useState('flood_surface_water');
 
-  // Dates (Default to nominal recent NISAR cycle: 12 days gap)
+  // Dates
   const today = new Date().toISOString().split('T')[0];
-  const defaultFirst = new Date(Date.now() - 24 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const defaultSecond = new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const defaultFirst = '2026-11-06';
+  const defaultSecond = '2026-11-12';
 
   const [firstDate, setFirstDate] = useState(defaultFirst);
   const [secondDate, setSecondDate] = useState(defaultSecond);
 
-  // Validation states
+  // Validation & Discovery states
   const [geoValidation, setGeoValidation] = useState({ loading: false, valid: false, errors: [], metrics: null });
   const [dateError, setDateError] = useState(null);
+
+  // NISAR Discovery state
+  const [isSearchingNisar, setIsSearchingNisar] = useState(false);
+  const [nisarPairResult, setNisarPairResult] = useState(null);
+  const [toleranceDays, setToleranceDays] = useState(5);
+  const [sampleRegions, setSampleRegions] = useState([]);
+
+  // Final submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
+
+  // Fetch sample regions on mount
+  useEffect(() => {
+    fetchNisarSamples().then(setSampleRegions);
+  }, []);
 
   // Validate geometry whenever it changes
   useEffect(() => {
     if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
       setGeoValidation({ loading: false, valid: false, errors: [], metrics: null });
+      setNisarPairResult(null);
       return;
     }
 
     let active = true;
-    setGeoValidation(prev => ({ ...prev, loading: true }));
+    setGeoValidation((prev) => ({ ...prev, loading: true }));
 
     validateGeometryAPI(geometry).then((res) => {
       if (!active) return;
@@ -76,7 +102,9 @@ export default function ComparisonPanel({
       }
     });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [geometry]);
 
   // Validate dates whenever they change
@@ -110,7 +138,30 @@ export default function ComparisonPanel({
     setSecondDate(end.toISOString().split('T')[0]);
   };
 
-  // Submit Comparison Request
+  // Search Official NISAR Catalog via Backend
+  const handleSearchNisar = async () => {
+    if (!geometry || !geoValidation.valid || dateError) return;
+
+    setIsSearchingNisar(true);
+    setNisarPairResult(null);
+
+    const payload = {
+      geometry,
+      firstDate,
+      secondDate,
+      toleranceDays
+    };
+
+    const res = await pairNisarObservationsAPI(payload);
+    setIsSearchingNisar(false);
+    setNisarPairResult(res);
+
+    if (onObservationsDiscovered) {
+      onObservationsDiscovered(res);
+    }
+  };
+
+  // Submit Final Comparison Request
   const handleSubmit = async () => {
     if (!geometry || !geoValidation.valid || dateError) return;
 
@@ -122,7 +173,12 @@ export default function ComparisonPanel({
       geometry,
       firstDate,
       secondDate,
-      changeCategory
+      changeCategory,
+      nisarObservations: nisarPairResult?.completePairAvailable ? {
+        first: nisarPairResult.firstObservation?.primaryCandidate?.productIdentifier,
+        second: nisarPairResult.secondObservation?.primaryCandidate?.productIdentifier,
+        isCompatible: nisarPairResult.compatibility?.isCompatible
+      } : null
     };
 
     const res = await submitComparisonRequestAPI(payload);
@@ -145,15 +201,15 @@ export default function ComparisonPanel({
     }
   };
 
-  const isReadyToSubmit = geoValidation.valid && !dateError && !geoValidation.loading;
+  const isReadyToSearch = geoValidation.valid && !dateError && !geoValidation.loading;
 
   return (
     <div className="bg-surface border border-borderCol rounded-md shadow-sm text-xs font-sans w-72 sm:w-80 overflow-hidden">
       {/* Header bar */}
       <div className="flex items-center justify-between px-3 py-2 bg-slate-50/70 border-b border-borderCol">
         <div className="flex items-center gap-2 font-medium text-primaryText">
-          <Droplets className="w-4 h-4 text-accent" />
-          <span>Observation &amp; Comparison</span>
+          <Satellite className="w-4 h-4 text-accent" />
+          <span>NISAR Observation &amp; Selection</span>
         </div>
         <button
           onClick={() => setIsExpanded(!isExpanded)}
@@ -188,6 +244,7 @@ export default function ComparisonPanel({
                   <button
                     onClick={() => {
                       onGeometryChange(null);
+                      setNisarPairResult(null);
                       if (onDrawModeChange) onDrawModeChange('none');
                     }}
                     className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
@@ -255,7 +312,7 @@ export default function ComparisonPanel({
               </div>
             ) : (
               <div className="mt-1.5 text-[10px] text-secondaryText">
-                Select a draw tool above to define your area on the map.
+                Define an area with the drawing tools or select a preset location.
               </div>
             )}
           </div>
@@ -263,7 +320,7 @@ export default function ComparisonPanel({
           {/* Section 2: Change Category */}
           <div className="pt-2 border-t border-slate-100">
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-secondaryText mb-1">
-              2. Change Category
+              2. Target Radar Change Category
             </label>
             <div className="p-2 rounded bg-slate-50 border border-borderCol">
               <div className="flex items-center justify-between">
@@ -271,7 +328,7 @@ export default function ComparisonPanel({
                   Flood and surface water changes
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-accent-50 border border-accent-200 text-[9px] font-semibold text-accent uppercase">
-                  SAR Active
+                  L &amp; S Band
                 </span>
               </div>
               <p className="text-[10px] text-secondaryText mt-0.5">
@@ -290,7 +347,6 @@ export default function ComparisonPanel({
                 <button
                   onClick={() => handleSetQuickDates(12)}
                   className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                  title="12-day NISAR orbital repeat pass"
                 >
                   12d Orbit
                 </button>
@@ -308,35 +364,27 @@ export default function ComparisonPanel({
                 <span className="block text-[10px] text-secondaryText mb-0.5">
                   T₁ Baseline Date
                 </span>
-                <div className="relative">
-                  <input
-                    type="date"
-                    max={secondDate || today}
-                    value={firstDate}
-                    onChange={(e) => setFirstDate(e.target.value)}
-                    className="w-full px-2 py-1.5 bg-surface border border-borderCol rounded text-xs text-primaryText focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent font-mono"
-                  />
-                </div>
+                <input
+                  type="date"
+                  value={firstDate}
+                  onChange={(e) => setFirstDate(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-surface border border-borderCol rounded text-xs text-primaryText focus:outline-none focus:border-accent font-mono"
+                />
               </div>
 
               <div>
                 <span className="block text-[10px] text-secondaryText mb-0.5">
                   T₂ Target Date
                 </span>
-                <div className="relative">
-                  <input
-                    type="date"
-                    min={firstDate}
-                    max={today}
-                    value={secondDate}
-                    onChange={(e) => setSecondDate(e.target.value)}
-                    className="w-full px-2 py-1.5 bg-surface border border-borderCol rounded text-xs text-primaryText focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent font-mono"
-                  />
-                </div>
+                <input
+                  type="date"
+                  value={secondDate}
+                  onChange={(e) => setSecondDate(e.target.value)}
+                  className="w-full px-2 py-1.5 bg-surface border border-borderCol rounded text-xs text-primaryText focus:outline-none focus:border-accent font-mono"
+                />
               </div>
             </div>
 
-            {/* Date Validation Error */}
             {dateError && (
               <div className="mt-1.5 p-1.5 rounded bg-red-50 border border-red-200 text-[10px] text-red-700 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3 text-red-500 shrink-0" />
@@ -345,53 +393,151 @@ export default function ComparisonPanel({
             )}
           </div>
 
-          {/* Section 4: Action & Request Submission */}
+          {/* Section 4: Discover Real NISAR Observations */}
           <div className="pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-secondaryText">
+                4. Satellite Catalog Discovery
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Tol: ±{toleranceDays}d
+              </span>
+            </div>
+
             <button
-              onClick={handleSubmit}
-              disabled={!isReadyToSubmit || isSubmitting}
+              onClick={handleSearchNisar}
+              disabled={!isReadyToSearch || isSearchingNisar}
               className={`w-full py-2 px-3 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition shadow-sm ${
-                isReadyToSubmit && !isSubmitting
+                isReadyToSearch && !isSearchingNisar
                   ? 'bg-accent hover:bg-accent-dark text-white'
                   : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
               }`}
             >
-              {isSubmitting ? (
+              {isSearchingNisar ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Validating &amp; Registering...</span>
+                  <span>Searching NASA ASF &amp; CMR...</span>
                 </>
               ) : (
                 <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Prepare Comparison Request</span>
+                  <Satellite className="w-3.5 h-3.5" />
+                  <span>Search Official NISAR Data</span>
                 </>
               )}
             </button>
 
-            {/* Submission confirmation modal / inline banner */}
-            {submissionResult && submissionResult.success && (
-              <div className="mt-2.5 p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-[11px] text-emerald-900 space-y-1 animate-fade-in">
-                <div className="flex items-center gap-1.5 font-semibold text-emerald-700">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Request Prepared &amp; Registered</span>
+            {/* Quick Sample Swaths button for verified testing */}
+            {sampleRegions.length > 0 && (!nisarPairResult || !nisarPairResult.completePairAvailable) && (
+              <div className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 space-y-1">
+                <div className="text-[10px] text-secondaryText font-medium flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-accent" />
+                  <span>Try Verified NISAR Validation Swaths:</span>
                 </div>
-                <div className="font-mono text-[10px] text-emerald-800">
-                  ID: <span className="font-semibold">{submissionResult.requestId}</span>
+                <div className="space-y-1 pt-0.5">
+                  {sampleRegions.map((sample) => (
+                    <button
+                      key={sample.id}
+                      onClick={() => {
+                        if (onLoadSampleRegion) onLoadSampleRegion(sample);
+                        setFirstDate(sample.suggestedDates.first);
+                        setSecondDate(sample.suggestedDates.second);
+                      }}
+                      className="w-full text-left px-2 py-1 bg-white hover:bg-accent-50 hover:text-accent border border-slate-200 rounded text-[10px] flex items-center justify-between transition"
+                    >
+                      <span className="font-medium truncate">{sample.name}</span>
+                      <span className="font-mono text-[9px] text-slate-400 shrink-0">
+                        {sample.suggestedDates.first.slice(5)} → {sample.suggestedDates.second.slice(5)}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-                <p className="text-[10px] text-emerald-700/90 leading-tight">
-                  Area: {submissionResult.data.geometry.metrics.areaKm2.toLocaleString()} km² • {submissionResult.data.observations.deltaDays} days baseline gap. Ready for Phase 3 satellite data retrieval.
-                </p>
-              </div>
-            )}
-
-            {submissionResult && !submissionResult.success && (
-              <div className="mt-2.5 p-2 bg-red-50 border border-red-200 rounded-md text-[10px] text-red-700 flex items-start gap-1">
-                <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
-                <span>{submissionResult.errors[0]}</span>
               </div>
             )}
           </div>
+
+          {/* Section 5: Retrieved NISAR Observations Display */}
+          {nisarPairResult && (
+            <div className="pt-2 border-t border-slate-100 space-y-2.5 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-secondaryText">
+                  5. Catalog Results
+                </span>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                  nisarPairResult.completePairAvailable
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border border-amber-200'
+                }`}>
+                  {nisarPairResult.completePairAvailable ? 'Pair Verified' : 'Incomplete Coverage'}
+                </span>
+              </div>
+
+              {/* Baseline T1 Card */}
+              <ObservationDetails
+                observation={nisarPairResult.firstObservation}
+                label="Baseline T₁"
+                role="baseline"
+              />
+
+              {/* Target T2 Card */}
+              <ObservationDetails
+                observation={nisarPairResult.secondObservation}
+                label="Target T₂"
+                role="target"
+              />
+
+              {/* Radar Compatibility Assessment */}
+              {nisarPairResult.compatibility && (
+                <div className="p-2 rounded bg-slate-50 border border-borderCol text-[11px] space-y-1">
+                  <div className="flex items-center justify-between font-medium">
+                    <span className="text-secondaryText text-[10px]">Radar Geometry Check</span>
+                    <span className={nisarPairResult.compatibility.isCompatible ? 'text-accent' : 'text-amber-600'}>
+                      {nisarPairResult.compatibility.isCompatible ? 'Coherent Geometry' : 'Look Geometry Warning'}
+                    </span>
+                  </div>
+                  {nisarPairResult.compatibility.reasons?.map((reason, idx) => (
+                    <p key={idx} className="text-[10px] text-secondaryText leading-tight">
+                      • {reason}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Prepare Data for Processing Phase */}
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="w-full py-2 px-3 rounded-md text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center gap-2 transition shadow-sm"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Preparing Data Package...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Prepare Data Package for Processing</span>
+                  </>
+                )}
+              </button>
+
+              {/* Final Confirmation Banner */}
+              {submissionResult && submissionResult.success && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-[11px] text-emerald-900 space-y-1 animate-fade-in">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Package Ready for Processing</span>
+                  </div>
+                  <div className="font-mono text-[10px] text-emerald-800">
+                    ID: <span className="font-semibold">{submissionResult.requestId}</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-700/90 leading-tight">
+                    Satellite observation metadata verified from NASA ASF DAAC. Data package prepared for processing phase.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

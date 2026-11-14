@@ -10,9 +10,7 @@ export async function fetchBackendHealth() {
 
     const response = await fetch(`${API_BASE_URL}/health`, {
       signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      }
+      headers: { 'Accept': 'application/json' }
     });
     clearTimeout(timeoutId);
 
@@ -45,16 +43,8 @@ export async function fetchChangeCategories() {
     const data = await res.json();
     return data.categories || [];
   } catch (err) {
-    console.warn('Could not fetch change categories from server, using fallback:', err);
-    return [
-      {
-        id: 'flood_surface_water',
-        name: 'Flood and surface water changes',
-        description: 'High-sensitivity SAR backscatter detection of standing water, surface inundation, and hydrological displacement.',
-        sensorMode: 'NISAR Dual-Pol (HH/HV) & Single-Pol (VV)',
-        suitableBands: ['L-band', 'S-band']
-      }
-    ];
+    console.warn('Could not fetch change categories from server:', err);
+    return [];
   }
 }
 
@@ -125,6 +115,80 @@ export async function submitComparisonRequestAPI(payload) {
     return {
       success: false,
       errors: [err.message || 'Failed to submit comparison request']
+    };
+  }
+}
+
+/**
+ * Phase 3: Fetch official NISAR catalog status & Earthdata authentication state
+ */
+export async function fetchNisarCatalogStatus() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/nisar/status`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    return {
+      status: 'offline',
+      error: err.message
+    };
+  }
+}
+
+/**
+ * Phase 3: Fetch verified NISAR sample areas
+ */
+export async function fetchNisarSamples() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/nisar/samples`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.samples || [];
+  } catch (err) {
+    console.warn('Failed to fetch NISAR samples:', err);
+    return [];
+  }
+}
+
+/**
+ * Phase 3: Search and Pair Official NISAR Observations for Baseline & Target
+ */
+export async function pairNisarObservationsAPI(payload) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/nisar/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    return {
+      success: res.ok,
+      ...data
+    };
+  } catch (err) {
+    return {
+      success: false,
+      completePairAvailable: false,
+      message: err.message || 'Failed to connect to NISAR data catalog service'
+    };
+  }
+}
+
+/**
+ * Phase 3: Prepare data download / access references
+ */
+export async function prepareNisarDownloadAPI(payload) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/nisar/prepare-download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message
     };
   }
 }
