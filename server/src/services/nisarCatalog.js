@@ -266,14 +266,6 @@ export async function pairNISARObservations({ bbox, firstDate, secondDate, toler
 export function getVerifiedNISARSampleAOIs() {
   return [
     {
-      id: 'alaska_glaciers',
-      name: 'Yukon-Kuskokwim Delta & Alaska Glaciers',
-      description: 'Active NASA ASF validation swath area with multi-temporal L-band RSLC & GCOV observations.',
-      bbox: [-166.0, 59.0, -158.0, 64.0],
-      suggestedDates: { first: '2026-11-06', second: '2026-11-12' },
-      verifiedProducts: 'L1 RSLC & L2 GCOV Dual-Pol'
-    },
-    {
       id: 'north_america_calval',
       name: 'North American Calibration Swath (Mississippi Basin)',
       description: 'Hydrological validation corridor with continuous dual-pol backscatter acquisitions.',
@@ -282,11 +274,19 @@ export function getVerifiedNISARSampleAOIs() {
       verifiedProducts: 'L2 GCOV (DHDH)'
     },
     {
+      id: 'alaska_glaciers',
+      name: 'Yukon-Kuskokwim Delta & Alaska Glaciers',
+      description: 'Active NASA ASF validation swath area with multi-temporal L-band RSLC & GCOV observations.',
+      bbox: [-166.0, 59.0, -158.0, 64.0],
+      suggestedDates: { first: '2026-11-03', second: '2026-11-05' },
+      verifiedProducts: 'L1 RSLC & L2 GCOV Dual-Pol'
+    },
+    {
       id: 'greenland_cryosphere',
       name: 'Greenland Ice Sheet Velocity Corridor',
       description: 'High-latitude L-SAR validation tracking ice flow velocity and melt events.',
       bbox: [-50.0, 68.0, -42.0, 72.0],
-      suggestedDates: { first: '2026-11-06', second: '2026-11-12' },
+      suggestedDates: { first: '2026-11-03', second: '2026-11-05' },
       verifiedProducts: 'L1 RSLC & L2 GCOV'
     }
   ];

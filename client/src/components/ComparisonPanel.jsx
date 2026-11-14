@@ -29,6 +29,33 @@ import {
 } from '../services/api';
 import ObservationDetails from './ObservationDetails';
 
+const DEFAULT_SAMPLES = [
+  {
+    id: 'north_america_calval',
+    name: 'North American Calibration Swath (Mississippi Basin)',
+    description: 'Hydrological validation corridor with continuous dual-pol backscatter acquisitions.',
+    bbox: [-92.0, 31.0, -87.0, 35.0],
+    suggestedDates: { first: '2025-10-29', second: '2025-11-09' },
+    verifiedProducts: 'L2 GCOV (DHDH)'
+  },
+  {
+    id: 'alaska_glaciers',
+    name: 'Yukon-Kuskokwim Delta & Alaska Glaciers',
+    description: 'Active NASA ASF validation swath area with multi-temporal L-band RSLC & GCOV observations.',
+    bbox: [-166.0, 59.0, -158.0, 64.0],
+    suggestedDates: { first: '2026-11-03', second: '2026-11-05' },
+    verifiedProducts: 'L1 RSLC & L2 GCOV Dual-Pol'
+  },
+  {
+    id: 'greenland_cryosphere',
+    name: 'Greenland Ice Sheet Velocity Corridor',
+    description: 'High-latitude L-SAR validation tracking ice flow velocity and melt events.',
+    bbox: [-50.0, 68.0, -42.0, 72.0],
+    suggestedDates: { first: '2026-11-03', second: '2026-11-05' },
+    verifiedProducts: 'L1 RSLC & L2 GCOV'
+  }
+];
+
 export default function ComparisonPanel({
   geometry,
   onGeometryChange,
@@ -49,9 +76,8 @@ export default function ComparisonPanel({
   const [changeCategory] = useState('flood_surface_water');
 
   // Dates
-  const today = new Date().toISOString().split('T')[0];
-  const defaultFirst = '2026-11-06';
-  const defaultSecond = '2026-11-12';
+  const defaultFirst = '2025-10-29';
+  const defaultSecond = '2025-11-09';
 
   const [firstDate, setFirstDate] = useState(defaultFirst);
   const [secondDate, setSecondDate] = useState(defaultSecond);
@@ -64,15 +90,19 @@ export default function ComparisonPanel({
   const [isSearchingNisar, setIsSearchingNisar] = useState(false);
   const [nisarPairResult, setNisarPairResult] = useState(null);
   const [toleranceDays, setToleranceDays] = useState(5);
-  const [sampleRegions, setSampleRegions] = useState([]);
+  const [sampleRegions, setSampleRegions] = useState(DEFAULT_SAMPLES);
 
   // Final submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null);
 
-  // Fetch sample regions on mount
+  // Fetch verified sample regions on mount
   useEffect(() => {
-    fetchNisarSamples().then(setSampleRegions);
+    fetchNisarSamples().then((res) => {
+      if (Array.isArray(res) && res.length > 0) {
+        setSampleRegions(res);
+      }
+    });
   }, []);
 
   // Validate geometry whenever it changes
@@ -143,7 +173,32 @@ export default function ComparisonPanel({
 
   // Search Official NISAR Catalog via Backend
   const handleSearchNisar = async () => {
-    if (!geometry || !geoValidation.valid || dateError) return;
+    // If no geometry is defined yet, automatically load the verified sample swath and search!
+    if (!geometry) {
+      const sample = sampleRegions[0] || DEFAULT_SAMPLES[0];
+      if (sample) {
+        if (onLoadSampleRegion) onLoadSampleRegion(sample);
+        setFirstDate(sample.suggestedDates.first);
+        setSecondDate(sample.suggestedDates.second);
+        setIsSearchingNisar(true);
+        setNisarPairResult(null);
+
+        const res = await pairNisarObservationsAPI({
+          bbox: sample.bbox,
+          firstDate: sample.suggestedDates.first,
+          secondDate: sample.suggestedDates.second,
+          toleranceDays
+        });
+        setIsSearchingNisar(false);
+        setNisarPairResult(res);
+        if (onObservationsDiscovered) {
+          onObservationsDiscovered(res);
+        }
+        return;
+      }
+    }
+
+    if (!geoValidation.valid || dateError) return;
 
     setIsSearchingNisar(true);
     setNisarPairResult(null);
@@ -234,7 +289,7 @@ export default function ComparisonPanel({
     }
   };
 
-  const isReadyToSearch = geoValidation.valid && !dateError && !geoValidation.loading;
+  const isReadyToSearch = !dateError && (!geometry || (geoValidation.valid && !geoValidation.loading));
 
   return (
     <div className="bg-surface border border-borderCol rounded-md shadow-sm text-xs font-sans w-72 sm:w-80 overflow-hidden">
@@ -437,12 +492,21 @@ export default function ComparisonPanel({
               </span>
             </div>
 
+            {!geometry && (
+              <div className="mb-2 p-1.5 rounded bg-cyan-50/80 border border-cyan-200/80 text-[10px] text-cyan-900 flex items-center justify-between">
+                <span className="flex items-center gap-1 font-medium">
+                  <Sparkles className="w-3.5 h-3.5 text-accent shrink-0" />
+                  <span>Tip: Pick a sample swath below or draw on the map:</span>
+                </span>
+              </div>
+            )}
+
             <button
               onClick={handleSearchNisar}
               disabled={!isReadyToSearch || isSearchingNisar}
               className={`w-full py-2 px-3 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition shadow-sm ${
                 isReadyToSearch && !isSearchingNisar
-                  ? 'bg-accent hover:bg-accent-dark text-white'
+                  ? 'bg-accent hover:bg-accent-dark text-white cursor-pointer'
                   : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
               }`}
             >
@@ -454,17 +518,20 @@ export default function ComparisonPanel({
               ) : (
                 <>
                   <Satellite className="w-3.5 h-3.5" />
-                  <span>Search Official NISAR Data</span>
+                  <span>{geometry ? 'Search Official NISAR Data' : 'Auto-Load Swath & Search NISAR'}</span>
                 </>
               )}
             </button>
 
             {/* Quick Sample Swaths button for verified testing */}
             {sampleRegions.length > 0 && (!nisarPairResult || !nisarPairResult.completePairAvailable) && (
-              <div className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 space-y-1">
-                <div className="text-[10px] text-secondaryText font-medium flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-accent" />
-                  <span>Try Verified NISAR Validation Swaths:</span>
+              <div className="mt-2 p-2 rounded bg-slate-50 border border-slate-200 space-y-1.5">
+                <div className="text-[10px] text-secondaryText font-medium flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-accent" />
+                    <span>Verified NISAR Validation Swaths:</span>
+                  </span>
+                  <span className="text-[9px] text-accent font-semibold">1-Click</span>
                 </div>
                 <div className="space-y-1 pt-0.5">
                   {sampleRegions.map((sample) => (
@@ -475,10 +542,13 @@ export default function ComparisonPanel({
                         setFirstDate(sample.suggestedDates.first);
                         setSecondDate(sample.suggestedDates.second);
                       }}
-                      className="w-full text-left px-2 py-1 bg-white hover:bg-accent-50 hover:text-accent border border-slate-200 rounded text-[10px] flex items-center justify-between transition"
+                      className="w-full text-left px-2 py-1.5 bg-white hover:bg-cyan-50 hover:border-cyan-300 border border-slate-200 rounded text-[10px] flex items-center justify-between transition group"
                     >
-                      <span className="font-medium truncate">{sample.name}</span>
-                      <span className="font-mono text-[9px] text-slate-400 shrink-0">
+                      <div className="flex flex-col truncate pr-1">
+                        <span className="font-medium text-slate-700 group-hover:text-accent truncate">{sample.name}</span>
+                        <span className="text-[9px] text-secondaryText">{sample.verifiedProducts}</span>
+                      </div>
+                      <span className="font-mono text-[9px] text-slate-400 group-hover:text-accent shrink-0">
                         {sample.suggestedDates.first.slice(5)} → {sample.suggestedDates.second.slice(5)}
                       </span>
                     </button>
@@ -540,7 +610,7 @@ export default function ComparisonPanel({
                 <button
                   onClick={handleRunChangeDetection}
                   disabled={isProcessing}
-                  className="w-full py-2.5 px-3 rounded-md text-xs font-semibold bg-accent hover:bg-accent-dark text-white flex items-center justify-center gap-2 transition shadow-md"
+                  className="w-full py-2.5 px-3 rounded-md text-xs font-semibold bg-accent hover:bg-accent-dark text-white flex items-center justify-center gap-2 transition shadow-md cursor-pointer"
                 >
                   {isProcessing ? (
                     <>
@@ -554,7 +624,25 @@ export default function ComparisonPanel({
                     </>
                   )}
                 </button>
-              ) : null}
+              ) : (
+                <div className="p-2.5 rounded bg-amber-50/80 border border-amber-200 text-amber-900 text-[11px] space-y-1.5">
+                  <p className="leading-tight text-amber-800">
+                    Official NISAR data is archived by NASA ASF for verified calibration corridors and planned acquisition cycles.
+                  </p>
+                  <button
+                    onClick={() => {
+                      const sample = sampleRegions[0] || DEFAULT_SAMPLES[0];
+                      if (onLoadSampleRegion) onLoadSampleRegion(sample);
+                      setFirstDate(sample.suggestedDates.first);
+                      setSecondDate(sample.suggestedDates.second);
+                    }}
+                    className="w-full py-1.5 px-2 bg-accent text-white rounded font-medium text-[10px] hover:bg-accent-dark transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Load North American Calibration Swath</span>
+                  </button>
+                </div>
+              )}
 
               {processingError && (
                 <div className="p-2 rounded bg-red-50 border border-red-200 text-[10px] text-red-700">

@@ -61,7 +61,7 @@ export default function DataStatus() {
             <span className="text-[10px] text-secondaryText truncate max-w-[210px]">
               {health.connected
                 ? 'NASA DAAC & CMR Gateway Live'
-                : 'Awaiting backend at localhost:5000'}
+                : 'Awaiting backend connection'}
             </span>
           </div>
         </div>
