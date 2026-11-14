@@ -362,7 +362,11 @@ export default function InteractiveMap({
   const syncGeometryToMap = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!map.isStyleLoaded()) return;
+
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => syncGeometryToMap());
+      return;
+    }
 
     if (!map.getSource('user-aoi-source')) {
       map.addSource('user-aoi-source', {
@@ -378,7 +382,7 @@ export default function InteractiveMap({
         source: 'user-aoi-source',
         paint: {
           'fill-color': '#0891B2',
-          'fill-opacity': 0.25
+          'fill-opacity': 0.04 // Transparent so the map and cyan change patches are clearly visible!
         }
       });
     }
@@ -389,8 +393,8 @@ export default function InteractiveMap({
         type: 'line',
         source: 'user-aoi-source',
         paint: {
-          'line-color': '#06B6D4',
-          'line-width': 2.8,
+          'line-color': '#0284C7',
+          'line-width': 2.5,
           'line-dasharray': [4, 2]
         }
       });
@@ -429,7 +433,11 @@ export default function InteractiveMap({
   const syncRetrievedSwaths = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!map.isStyleLoaded()) return;
+
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => syncRetrievedSwaths());
+      return;
+    }
 
     if (!map.getSource('nisar-retrieved-swaths-source')) {
       map.addSource('nisar-retrieved-swaths-source', {
@@ -445,7 +453,7 @@ export default function InteractiveMap({
         source: 'nisar-retrieved-swaths-source',
         paint: {
           'fill-color': '#0891B2',
-          'fill-opacity': 0.12
+          'fill-opacity': 0.08
         }
       });
     }
@@ -457,7 +465,7 @@ export default function InteractiveMap({
         source: 'nisar-retrieved-swaths-source',
         paint: {
           'line-color': '#0E7490',
-          'line-width': 2.0,
+          'line-width': 1.8,
           'line-dasharray': [3, 2]
         }
       });
@@ -498,11 +506,15 @@ export default function InteractiveMap({
     syncRetrievedSwaths();
   }, [retrievedSwaths, syncRetrievedSwaths]);
 
-  // Sync Change Mask to Map Source (Self-healing)
+  // Sync Change Mask to Map Source (Self-healing and elevated to top layer)
   const syncChangeMask = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (!map.isStyleLoaded()) return;
+
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => syncChangeMask());
+      return;
+    }
 
     if (!map.getSource('radar-change-mask-source')) {
       map.addSource('radar-change-mask-source', {
@@ -520,8 +532,8 @@ export default function InteractiveMap({
           visibility: showChangeMask ? 'visible' : 'none'
         },
         paint: {
-          'fill-color': '#0891B2',
-          'fill-opacity': 0.42
+          'fill-color': '#00FFFF', // Vivid Fluorescent Electric Cyan
+          'fill-opacity': 0.72
         }
       });
     }
@@ -536,15 +548,23 @@ export default function InteractiveMap({
         },
         paint: {
           'line-color': '#0891B2',
-          'line-width': 2.2
+          'line-width': 2.5
         }
       });
+    }
+
+    // Always bring the detected change mask to the top above any AOI fill
+    try {
+      if (map.getLayer('radar-change-mask-fill')) map.moveLayer('radar-change-mask-fill');
+      if (map.getLayer('radar-change-mask-stroke')) map.moveLayer('radar-change-mask-stroke');
+    } catch {
+      // Ignored if already on top
     }
 
     const source = map.getSource('radar-change-mask-source');
     if (!source) return;
 
-    if (changeMaskGeoJSON && changeMaskGeoJSON.features) {
+    if (changeMaskGeoJSON && changeMaskGeoJSON.features && changeMaskGeoJSON.features.length > 0) {
       source.setData(changeMaskGeoJSON);
     } else {
       source.setData({
