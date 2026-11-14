@@ -202,6 +202,26 @@ export default function ComparisonPanel({
         if (onObservationsDiscovered) {
           onObservationsDiscovered(res);
         }
+
+        // Automatically execute radar change detection as well!
+        if (res?.completePairAvailable) {
+          const [minLon, minLat, maxLon, maxLat] = sample.bbox;
+          const sampleGeom = {
+            type: 'Polygon',
+            coordinates: [[[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]]]
+          };
+          setIsProcessing(true);
+          const compRes = await executeRadarComparisonAPI({
+            firstObservation: res.firstObservation.primaryCandidate,
+            secondObservation: res.secondObservation.primaryCandidate,
+            geometry: sampleGeom,
+            settings: { thresholdDb: -3.2, changeCategory }
+          });
+          setIsProcessing(false);
+          if (compRes?.success && onProcessingComplete) {
+            onProcessingComplete(compRes);
+          }
+        }
         return;
       }
     }
@@ -225,12 +245,27 @@ export default function ComparisonPanel({
     if (onObservationsDiscovered) {
       onObservationsDiscovered(res);
     }
+
+    // Automatically compute change detection on discovery
+    if (res?.completePairAvailable) {
+      setIsProcessing(true);
+      const compRes = await executeRadarComparisonAPI({
+        firstObservation: res.firstObservation.primaryCandidate,
+        secondObservation: res.secondObservation.primaryCandidate,
+        geometry,
+        settings: { thresholdDb: -3.2, changeCategory }
+      });
+      setIsProcessing(false);
+      if (compRes?.success && onProcessingComplete) {
+        onProcessingComplete(compRes);
+      }
+    }
   };
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingError, setProcessingError] = useState(null);
 
-  // Run Radar Change Detection
+  // Run Radar Change Detection Manually
   const handleRunChangeDetection = async () => {
     if (!nisarPairResult?.firstObservation?.primaryCandidate || !nisarPairResult?.secondObservation?.primaryCandidate) {
       return;
@@ -238,10 +273,21 @@ export default function ComparisonPanel({
     setIsProcessing(true);
     setProcessingError(null);
 
+    let targetGeom = geometry;
+    if (!targetGeom || !targetGeom.coordinates) {
+      const sample = sampleRegions[0] || DEFAULT_SAMPLES[0];
+      const [minLon, minLat, maxLon, maxLat] = sample.bbox;
+      targetGeom = {
+        type: 'Polygon',
+        coordinates: [[[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]]]
+      };
+      if (onGeometryChange) onGeometryChange(targetGeom);
+    }
+
     const payload = {
       firstObservation: nisarPairResult.firstObservation.primaryCandidate,
       secondObservation: nisarPairResult.secondObservation.primaryCandidate,
-      geometry,
+      geometry: targetGeom,
       settings: { thresholdDb: -3.2, changeCategory }
     };
 
@@ -545,12 +591,45 @@ export default function ComparisonPanel({
                   {sampleRegions.map((sample) => (
                     <button
                       key={sample.id}
-                      onClick={() => {
+                      onClick={async () => {
                         if (onLoadSampleRegion) onLoadSampleRegion(sample);
                         setFirstDate(sample.suggestedDates.first);
                         setSecondDate(sample.suggestedDates.second);
+                        setIsSearchingNisar(true);
+                        setNisarPairResult(null);
+
+                        const res = await pairNisarObservationsAPI({
+                          bbox: sample.bbox,
+                          firstDate: sample.suggestedDates.first,
+                          secondDate: sample.suggestedDates.second,
+                          toleranceDays
+                        });
+                        setIsSearchingNisar(false);
+                        setNisarPairResult(res);
+                        if (onObservationsDiscovered) {
+                          onObservationsDiscovered(res);
+                        }
+
+                        if (res?.completePairAvailable) {
+                          const [minLon, minLat, maxLon, maxLat] = sample.bbox;
+                          const sampleGeom = {
+                            type: 'Polygon',
+                            coordinates: [[[minLon, minLat], [maxLon, minLat], [maxLon, maxLat], [minLon, maxLat], [minLon, minLat]]]
+                          };
+                          setIsProcessing(true);
+                          const compRes = await executeRadarComparisonAPI({
+                            firstObservation: res.firstObservation.primaryCandidate,
+                            secondObservation: res.secondObservation.primaryCandidate,
+                            geometry: sampleGeom,
+                            settings: { thresholdDb: -3.2, changeCategory }
+                          });
+                          setIsProcessing(false);
+                          if (compRes?.success && onProcessingComplete) {
+                            onProcessingComplete(compRes);
+                          }
+                        }
                       }}
-                      className="w-full text-left px-2 py-1.5 bg-white hover:bg-cyan-50 hover:border-cyan-300 border border-slate-200 rounded text-[10px] flex items-center justify-between transition group"
+                      className="w-full text-left px-2 py-1.5 bg-white hover:bg-cyan-50 hover:border-cyan-300 border border-slate-200 rounded text-[10px] flex items-center justify-between transition group cursor-pointer"
                     >
                       <div className="flex flex-col truncate pr-1">
                         <span className="font-medium text-slate-700 group-hover:text-accent truncate">{sample.name}</span>
