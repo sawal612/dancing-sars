@@ -1,20 +1,67 @@
 import React, { useState } from 'react';
-import { Layers, Globe, Eye, EyeOff, RotateCcw, Grid3X3, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
+import { Layers, Globe, Eye, EyeOff, RotateCcw, Grid3X3, SlidersHorizontal, ChevronDown, ChevronUp, Key } from 'lucide-react';
+
+const MAP_API_KEY = import.meta.env.VITE_MAP_API_KEY || import.meta.env.VITE_MAPTILER_KEY || '';
 
 export const BASEMAP_STYLES = {
+  // 1. Esri World Light Gray Canvas - 100% Free, NO API Key Required, Scientific Standard
   positron: {
     id: 'positron',
-    name: 'Carto Positron (Minimal Light)',
+    name: 'Scientific Light Canvas (No Key Required)',
+    url: {
+      version: 8,
+      sources: {
+        'esri-light-gray': {
+          type: 'raster',
+          tiles: [
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256,
+          attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+        },
+        'esri-light-gray-ref': {
+          type: 'raster',
+          tiles: [
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256
+        }
+      },
+      layers: [
+        {
+          id: 'esri-light-gray-layer',
+          type: 'raster',
+          source: 'esri-light-gray',
+          minzoom: 0,
+          maxzoom: 18
+        },
+        {
+          id: 'esri-light-gray-ref-layer',
+          type: 'raster',
+          source: 'esri-light-gray-ref',
+          minzoom: 0,
+          maxzoom: 18
+        }
+      ]
+    }
+  },
+
+  // 2. Carto Positron (Minimal Light)
+  carto_positron: {
+    id: 'carto_positron',
+    name: 'Carto Positron Light',
     url: {
       version: 8,
       sources: {
         'carto-positron-tiles': {
           type: 'raster',
           tiles: [
-            'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-            'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-            'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-            'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+            MAP_API_KEY
+              ? `https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?api_key=${MAP_API_KEY}`
+              : 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+            MAP_API_KEY
+              ? `https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?api_key=${MAP_API_KEY}`
+              : 'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
           ],
           tileSize: 256,
           attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -31,34 +78,8 @@ export const BASEMAP_STYLES = {
       ]
     }
   },
-  voyager: {
-    id: 'voyager',
-    name: 'Carto Voyager (Detailed Light)',
-    url: {
-      version: 8,
-      sources: {
-        'carto-voyager-tiles': {
-          type: 'raster',
-          tiles: [
-            'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-            'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-            'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'
-          ],
-          tileSize: 256,
-          attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        }
-      },
-      layers: [
-        {
-          id: 'carto-voyager-layer',
-          type: 'raster',
-          source: 'carto-voyager-tiles',
-          minzoom: 0,
-          maxzoom: 20
-        }
-      ]
-    }
-  },
+
+  // 3. OpenStreetMap Standard Light
   osm: {
     id: 'osm',
     name: 'OpenStreetMap Standard Light',
@@ -86,7 +107,16 @@ export const BASEMAP_STYLES = {
         }
       ]
     }
-  }
+  },
+
+  // 4. MapTiler Light (Active when key is provided)
+  ...(MAP_API_KEY ? {
+    maptiler: {
+      id: 'maptiler',
+      name: 'MapTiler Dataviz Light (Using API Key)',
+      url: `https://api.maptiler.com/maps/dataviz-light/style.json?key=${MAP_API_KEY}`
+    }
+  } : {})
 };
 
 export default function LayerControls({
@@ -113,7 +143,7 @@ export default function LayerControls({
         </div>
         <div className="flex items-center gap-2 text-secondaryText">
           <span className="text-[10px] text-slate-400 capitalize">
-            {currentBasemap}
+            {BASEMAP_STYLES[currentBasemap]?.name?.split(' ')[0] || currentBasemap}
           </span>
           {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </div>
@@ -124,9 +154,22 @@ export default function LayerControls({
         <div className="px-3 pt-1 pb-3 space-y-3 border-t border-slate-100">
           {/* Basemap selection */}
           <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-secondaryText mb-1.5">
-              Basemap Style
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-secondaryText">
+                Basemap Style
+              </label>
+              {MAP_API_KEY ? (
+                <span className="text-[9px] text-emerald-600 font-mono flex items-center gap-0.5">
+                  <Key className="w-2.5 h-2.5" />
+                  <span>Key Loaded</span>
+                </span>
+              ) : (
+                <span className="text-[9px] text-slate-400 font-mono">
+                  No Key Needed
+                </span>
+              )}
+            </div>
+
             <div className="space-y-1">
               {Object.entries(BASEMAP_STYLES).map(([key, item]) => (
                 <button
