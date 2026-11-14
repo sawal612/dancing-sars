@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Square,
   Pentagon,
@@ -91,6 +91,14 @@ export default function ComparisonPanel({
   const [nisarPairResult, setNisarPairResult] = useState(null);
   const [toleranceDays, setToleranceDays] = useState(5);
   const [sampleRegions, setSampleRegions] = useState(DEFAULT_SAMPLES);
+  const resultsRef = useRef(null);
+
+  // Auto-scroll to results when NISAR observations are discovered
+  useEffect(() => {
+    if (nisarPairResult && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [nisarPairResult]);
 
   // Final submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -560,7 +568,7 @@ export default function ComparisonPanel({
 
           {/* Section 5: Retrieved NISAR Observations Display */}
           {nisarPairResult && (
-            <div className="pt-2 border-t border-slate-100 space-y-2.5 animate-fade-in">
+            <div ref={resultsRef} className="pt-2 border-t border-slate-100 space-y-2.5 animate-fade-in">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-secondaryText">
                   5. Catalog Results
