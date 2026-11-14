@@ -12,10 +12,22 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
-// Middleware
+// Dynamic CORS configuration: allows any local development origin (5173, 5174, etc.)
 app.use(cors({
-  origin: CLIENT_ORIGIN,
+  origin: (origin, callback) => {
+    // Allow non-browser requests (curl, server-to-server, mobile)
+    if (!origin) return callback(null, true);
+
+    // Allow any localhost or 127.0.0.1 port (e.g. 5173, 5174, 5175, etc.)
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    if (isLocalhost || origin === CLIENT_ORIGIN || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
+    callback(new Error(`Origin ${origin} not allowed by CORS policy.`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
