@@ -1,0 +1,611 @@
+import React, { useEffect, useRef, useCallback } from 'react';
+import * as maplibregl from 'maplibre-gl';
+import { BASEMAP_STYLES } from './LayerControls';
+
+// Dynamic GeoJSON Graticule
+function createGraticuleGeoJSON() {
+  const features = [];
+  for (let lat = -80; lat <= 80; lat += 20) {
+    const coords = [];
+    for (let lon = -180; lon <= 180; lon += 5) coords.push([lon, lat]);
+    features.push({
+      type: 'Feature',
+      properties: { name: `${lat}°` },
+      geometry: { type: 'LineString', coordinates: coords }
+    });
+  }
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const coords = [];
+    for (let lat = -85; lat <= 85; lat += 5) coords.push([lon, lat]);
+    features.push({
+      type: 'Feature',
+      properties: { name: `${lon}°` },
+      geometry: { type: 'LineString', coordinates: coords }
+    });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+// Representative nominal NISAR Observation Zones
+const NISAR_AOI_FOOTPRINTS = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      properties: { aoi: 'Himalayan Cryosphere', band: 'L-band / S-band' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[75.0, 28.0], [88.0, 28.0], [86.0, 35.0], [74.0, 35.0], [75.0, 28.0]]]
+      }
+    },
+    {
+      type: 'Feature',
+      properties: { aoi: 'San Andreas Fault Zone', band: 'L-band' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-124.0, 32.5], [-115.0, 32.5], [-120.0, 40.0], [-126.0, 40.0], [-124.0, 32.5]]]
+      }
+    },
+    {
+      type: 'Feature',
+      properties: { aoi: 'Amazon Basin Calibration', band: 'L-band' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[[-68.0, -8.0], [-55.0, -8.0], [-57.0, 2.0], [-67.0, 2.0], [-68.0, -8.0]]]
+      }
+    }
+  ]
+};
+
+export default function InteractiveMap({
+  basemap,
+  layers,
+  showGraticule,
+  onMapMove,
+  mapInstanceRef,
+  drawMode = 'none', // 'none' | 'rectangle' | 'polygon'
+  onDrawModeChange,
+  geometry,
+  onGeometryChange,
+  isEditing = false,
+}) {
+  const mapContainer = useRef(null);
+  const mapRef = useRef(null);
+
+  // Drawing state refs
+  const drawingStateRef = useRef({
+    startPoint: null,
+    points: [],
+    isDrawing: false,
+  });
+
+  const vertexMarkersRef = useRef([]);
+
+  // Initialize Map
+  useEffect(() => {
+    if (mapRef.current) return;
+
+    const initialLon = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LON || '0');
+    const initialLat = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LAT || '20');
+    const initialZoom = parseFloat(import.meta.env.VITE_MAP_DEFAULT_ZOOM || '2');
+
+    const map = new maplibregl.Map({
+      container: mapContainer.current,
+      style: BASEMAP_STYLES[basemap]?.url || BASEMAP_STYLES.positron.url,
+      center: [initialLon, initialLat],
+      zoom: initialZoom,
+      pitch: 0,
+      bearing: 0,
+      attributionControl: false,
+    });
+
+    // Navigation & Scale Controls
+    const navControl = new maplibregl.NavigationControl({
+      showCompass: true,
+      visualizePitch: true,
+    });
+    map.addControl(navControl, 'top-right');
+
+    const scaleControl = new maplibregl.ScaleControl({
+      maxWidth: 120,
+      unit: 'metric'
+    });
+    map.addControl(scaleControl, 'bottom-right');
+
+    map.on('move', () => {
+      const center = map.getCenter();
+      const zoom = map.getZoom();
+      if (onMapMove) {
+        onMapMove({ lat: center.lat, lng: center.lng }, zoom);
+      }
+    });
+
+    const setupLayers = () => {
+      // 1. Graticule
+      if (!map.getSource('graticule-source')) {
+        map.addSource('graticule-source', {
+          type: 'geojson',
+          data: createGraticuleGeoJSON()
+        });
+        map.addLayer({
+          id: 'graticule-lines',
+          type: 'line',
+          source: 'graticule-source',
+          layout: { visibility: showGraticule ? 'visible' : 'none' },
+          paint: {
+            'line-color': '#94A3B8',
+            'line-width': 0.75,
+            'line-dasharray': [2, 3],
+            'line-opacity': 0.6
+          }
+        });
+      }
+
+      // 2. Reference NISAR Swaths
+      if (!map.getSource('nisar-aoi-source')) {
+        map.addSource('nisar-aoi-source', {
+          type: 'geojson',
+          data: NISAR_AOI_FOOTPRINTS
+        });
+        map.addLayer({
+          id: 'nisar-aoi-fill',
+          type: 'fill',
+          source: 'nisar-aoi-source',
+          layout: { visibility: layers?.nisarSwaths ? 'visible' : 'none' },
+          paint: { 'fill-color': '#0891B2', 'fill-opacity': 0.05 }
+        });
+        map.addLayer({
+          id: 'nisar-aoi-stroke',
+          type: 'line',
+          source: 'nisar-aoi-source',
+          layout: { visibility: layers?.nisarSwaths ? 'visible' : 'none' },
+          paint: {
+            'line-color': '#0891B2',
+            'line-width': 1.25,
+            'line-dasharray': [4, 2],
+            'line-opacity': 0.7
+          }
+        });
+      }
+
+      // 3. User Selected AOI Layers
+      if (!map.getSource('user-aoi-source')) {
+        map.addSource('user-aoi-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        map.addLayer({
+          id: 'user-aoi-fill',
+          type: 'fill',
+          source: 'user-aoi-source',
+          paint: {
+            'fill-color': '#0891B2',
+            'fill-opacity': 0.16
+          }
+        });
+
+        map.addLayer({
+          id: 'user-aoi-stroke',
+          type: 'line',
+          source: 'user-aoi-source',
+          paint: {
+            'line-color': '#0891B2',
+            'line-width': 2.2,
+            'line-dasharray': [3, 1]
+          }
+        });
+      }
+
+      // 4. In-progress Drawing Preview Layer
+      if (!map.getSource('user-aoi-preview-source')) {
+        map.addSource('user-aoi-preview-source', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: []
+          }
+        });
+
+        map.addLayer({
+          id: 'user-aoi-preview-fill',
+          type: 'fill',
+          source: 'user-aoi-preview-source',
+          paint: {
+            'fill-color': '#06B6D4',
+            'fill-opacity': 0.1
+          }
+        });
+
+        map.addLayer({
+          id: 'user-aoi-preview-stroke',
+          type: 'line',
+          source: 'user-aoi-preview-source',
+          paint: {
+            'line-color': '#0891B2',
+            'line-width': 1.8,
+            'line-dasharray': [2, 2]
+          }
+        });
+      }
+
+      // Sync existing geometry if present
+      syncGeometryToMap();
+    };
+
+    map.on('style.load', setupLayers);
+
+    mapRef.current = map;
+    if (mapInstanceRef) {
+      mapInstanceRef.current = map;
+    }
+
+    onMapMove({ lat: initialLat, lng: initialLon }, initialZoom);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Sync Geometry Data to Map Source
+  const syncGeometryToMap = useCallback(() => {
+    if (!mapRef.current) return;
+    const source = mapRef.current.getSource('user-aoi-source');
+    if (!source) return;
+
+    if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
+      source.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: { aoi: 'Selected Observation AOI' },
+            geometry: {
+              type: 'Polygon',
+              coordinates: geometry.coordinates
+            }
+          }
+        ]
+      });
+    } else {
+      source.setData({
+        type: 'FeatureCollection',
+        features: []
+      });
+    }
+  }, [geometry]);
+
+  useEffect(() => {
+    syncGeometryToMap();
+  }, [geometry, syncGeometryToMap]);
+
+  // Update Basemap Style dynamically
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const styleObj = BASEMAP_STYLES[basemap]?.url;
+    if (styleObj) {
+      mapRef.current.setStyle(styleObj);
+    }
+  }, [basemap]);
+
+  // Update Graticule visibility
+  useEffect(() => {
+    if (!mapRef.current || !mapRef.current.isStyleLoaded()) return;
+    const visibility = showGraticule ? 'visible' : 'none';
+    if (mapRef.current.getLayer('graticule-lines')) {
+      mapRef.current.setLayoutProperty('graticule-lines', 'visibility', visibility);
+    }
+  }, [showGraticule]);
+
+  // Clear preview drawing source
+  const clearPreview = () => {
+    if (!mapRef.current) return;
+    const previewSource = mapRef.current.getSource('user-aoi-preview-source');
+    if (previewSource) {
+      previewSource.setData({ type: 'FeatureCollection', features: [] });
+    }
+  };
+
+  // Interactive Drawing Handlers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const canvas = map.getCanvas();
+
+    if (drawMode === 'rectangle' || drawMode === 'polygon') {
+      canvas.style.cursor = 'crosshair';
+      map.doubleClickZoom.disable();
+    } else {
+      canvas.style.cursor = '';
+      map.doubleClickZoom.enable();
+      clearPreview();
+      drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+      return;
+    }
+
+    // CLICK HANDLER
+    const handleMapClick = (e) => {
+      const clickCoord = [e.lngLat.lng, e.lngLat.lat];
+
+      if (drawMode === 'rectangle') {
+        if (!drawingStateRef.current.isDrawing) {
+          // First corner click
+          drawingStateRef.current.startPoint = clickCoord;
+          drawingStateRef.current.isDrawing = true;
+        } else {
+          // Second corner click -> finalize rectangle
+          const start = drawingStateRef.current.startPoint;
+          const end = clickCoord;
+          const minLon = Math.min(start[0], end[0]);
+          const maxLon = Math.max(start[0], end[0]);
+          const minLat = Math.min(start[1], end[1]);
+          const maxLat = Math.max(start[1], end[1]);
+
+          const rectCoords = [
+            [minLon, minLat],
+            [maxLon, minLat],
+            [maxLon, maxLat],
+            [minLon, maxLat],
+            [minLon, minLat]
+          ];
+
+          clearPreview();
+          drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+
+          if (onGeometryChange) {
+            onGeometryChange({
+              type: 'Polygon',
+              coordinates: [rectCoords]
+            });
+          }
+          if (onDrawModeChange) {
+            onDrawModeChange('none');
+          }
+        }
+      } else if (drawMode === 'polygon') {
+        const pts = drawingStateRef.current.points;
+
+        // Check if clicked near first point to close (within reasonable visual threshold)
+        if (pts.length >= 3) {
+          const firstPt = pts[0];
+          const screenFirst = map.project(firstPt);
+          const screenClick = map.project(clickCoord);
+          const dist = Math.hypot(screenFirst.x - screenClick.x, screenFirst.y - screenClick.y);
+
+          if (dist < 20) {
+            // Close polygon
+            const closedCoords = [...pts, pts[0]];
+            clearPreview();
+            drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+
+            if (onGeometryChange) {
+              onGeometryChange({
+                type: 'Polygon',
+                coordinates: [closedCoords]
+              });
+            }
+            if (onDrawModeChange) {
+              onDrawModeChange('none');
+            }
+            return;
+          }
+        }
+
+        // Add new vertex
+        const updatedPts = [...pts, clickCoord];
+        drawingStateRef.current.points = updatedPts;
+        drawingStateRef.current.isDrawing = true;
+
+        // Update preview line
+        const previewSource = map.getSource('user-aoi-preview-source');
+        if (previewSource && updatedPts.length > 1) {
+          previewSource.setData({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                geometry: {
+                  type: 'LineString',
+                  coordinates: updatedPts
+                }
+              }
+            ]
+          });
+        }
+      }
+    };
+
+    // MOUSE MOVE HANDLER (Dynamic rubber-band preview)
+    const handleMouseMove = (e) => {
+      if (!drawingStateRef.current.isDrawing) return;
+      const currCoord = [e.lngLat.lng, e.lngLat.lat];
+      const previewSource = map.getSource('user-aoi-preview-source');
+      if (!previewSource) return;
+
+      if (drawMode === 'rectangle' && drawingStateRef.current.startPoint) {
+        const start = drawingStateRef.current.startPoint;
+        const minLon = Math.min(start[0], currCoord[0]);
+        const maxLon = Math.max(start[0], currCoord[0]);
+        const minLat = Math.min(start[1], currCoord[1]);
+        const maxLat = Math.max(start[1], currCoord[1]);
+
+        previewSource.setData({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[
+                  [minLon, minLat],
+                  [maxLon, minLat],
+                  [maxLon, maxLat],
+                  [minLon, maxLat],
+                  [minLon, minLat]
+                ]]
+              }
+            }
+          ]
+        });
+      } else if (drawMode === 'polygon' && drawingStateRef.current.points.length > 0) {
+        const pts = [...drawingStateRef.current.points, currCoord];
+        previewSource.setData({
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: pts
+              }
+            }
+          ]
+        });
+      }
+    };
+
+    // DOUBLE CLICK HANDLER (Close polygon)
+    const handleDblClick = (e) => {
+      if (drawMode === 'polygon' && drawingStateRef.current.points.length >= 3) {
+        e.preventDefault();
+        const pts = drawingStateRef.current.points;
+        const closedCoords = [...pts, pts[0]];
+
+        clearPreview();
+        drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+
+        if (onGeometryChange) {
+          onGeometryChange({
+            type: 'Polygon',
+            coordinates: [closedCoords]
+          });
+        }
+        if (onDrawModeChange) {
+          onDrawModeChange('none');
+        }
+      }
+    };
+
+    map.on('click', handleMapClick);
+    map.on('mousemove', handleMouseMove);
+    map.on('dblclick', handleDblClick);
+
+    return () => {
+      map.off('click', handleMapClick);
+      map.off('mousemove', handleMouseMove);
+      map.off('dblclick', handleDblClick);
+      canvas.style.cursor = '';
+      map.doubleClickZoom.enable();
+      clearPreview();
+    };
+  }, [drawMode, onGeometryChange, onDrawModeChange]);
+
+  // Vertex Drag Editing Mode
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove existing markers
+    vertexMarkersRef.current.forEach(marker => marker.remove());
+    vertexMarkersRef.current = [];
+
+    if (!isEditing || !geometry || !geometry.coordinates || !geometry.coordinates[0]) {
+      return;
+    }
+
+    const ring = geometry.coordinates[0];
+    const uniqueVertexCount = ring.length - 1; // last equals first
+
+    const markers = [];
+
+    for (let i = 0; i < uniqueVertexCount; i++) {
+      const coord = ring[i];
+      const el = document.createElement('div');
+      el.className = 'w-3.5 h-3.5 bg-white border-2 border-accent rounded-full shadow-md cursor-move hover:scale-125 transition-transform';
+      el.title = `Vertex ${i + 1}: drag to adjust`;
+
+      const marker = new maplibregl.Marker({
+        element: el,
+        draggable: true,
+      })
+        .setLngLat(coord)
+        .addTo(map);
+
+      marker.on('drag', () => {
+        const newLngLat = marker.getLngLat();
+        const updatedRing = [...geometry.coordinates[0]];
+        updatedRing[i] = [newLngLat.lng, newLngLat.lat];
+        if (i === 0) {
+          // keep closed ring first = last
+          updatedRing[updatedRing.length - 1] = [newLngLat.lng, newLngLat.lat];
+        }
+
+        // Live update source
+        const source = map.getSource('user-aoi-source');
+        if (source) {
+          source.setData({
+            type: 'FeatureCollection',
+            features: [{
+              type: 'Feature',
+              geometry: { type: 'Polygon', coordinates: [updatedRing] }
+            }]
+          });
+        }
+      });
+
+      marker.on('dragend', () => {
+        const newLngLat = marker.getLngLat();
+        const updatedRing = [...geometry.coordinates[0]];
+        updatedRing[i] = [newLngLat.lng, newLngLat.lat];
+        if (i === 0) {
+          updatedRing[updatedRing.length - 1] = [newLngLat.lng, newLngLat.lat];
+        }
+
+        if (onGeometryChange) {
+          onGeometryChange({
+            type: 'Polygon',
+            coordinates: [updatedRing]
+          });
+        }
+      });
+
+      markers.push(marker);
+    }
+
+    vertexMarkersRef.current = markers;
+
+    return () => {
+      markers.forEach(m => m.remove());
+      vertexMarkersRef.current = [];
+    };
+  }, [isEditing, geometry, onGeometryChange]);
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={mapContainer} className="w-full h-full bg-[#F1F5F9]" />
+
+      {/* Floating Drawing Helper Hint */}
+      {drawMode !== 'none' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-surface/95 backdrop-blur-sm border border-accent/40 rounded-full px-4 py-1.5 shadow-md flex items-center gap-2 text-xs text-primaryText font-sans animate-fade-in">
+          <span className="w-2 h-2 rounded-full bg-accent animate-ping" />
+          <span>
+            {drawMode === 'rectangle'
+              ? 'Click first corner, then click opposite corner to finish rectangle.'
+              : 'Click vertices on map. Click near start point or double-click to close polygon.'}
+          </span>
+          <button
+            onClick={() => onDrawModeChange && onDrawModeChange('none')}
+            className="ml-2 text-[10px] font-semibold text-secondaryText hover:text-red-500 uppercase tracking-wider"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
