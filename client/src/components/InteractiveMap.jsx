@@ -315,7 +315,13 @@ export default function InteractiveMap({
       syncChangeMask();
     };
 
-    map.on('style.load', setupLayers);
+    // Ensure layers are setup on both load and style.load, or immediately if already loaded
+    if (map.isStyleLoaded()) {
+      setupLayers();
+    } else {
+      map.on('load', setupLayers);
+      map.on('style.load', setupLayers);
+    }
 
     mapRef.current = map;
     if (mapInstanceRef) {
@@ -352,10 +358,45 @@ export default function InteractiveMap({
     };
   }, []);
 
-  // Sync Geometry Data to Map Source
+  // Sync Geometry Data to Map Source (Self-healing if layers not yet ready)
   const syncGeometryToMap = useCallback(() => {
-    if (!mapRef.current) return;
-    const source = mapRef.current.getSource('user-aoi-source');
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) return;
+
+    if (!map.getSource('user-aoi-source')) {
+      map.addSource('user-aoi-source', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+    }
+
+    if (!map.getLayer('user-aoi-fill')) {
+      map.addLayer({
+        id: 'user-aoi-fill',
+        type: 'fill',
+        source: 'user-aoi-source',
+        paint: {
+          'fill-color': '#0891B2',
+          'fill-opacity': 0.25
+        }
+      });
+    }
+
+    if (!map.getLayer('user-aoi-stroke')) {
+      map.addLayer({
+        id: 'user-aoi-stroke',
+        type: 'line',
+        source: 'user-aoi-source',
+        paint: {
+          'line-color': '#06B6D4',
+          'line-width': 2.8,
+          'line-dasharray': [4, 2]
+        }
+      });
+    }
+
+    const source = map.getSource('user-aoi-source');
     if (!source) return;
 
     if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
@@ -384,16 +425,51 @@ export default function InteractiveMap({
     syncGeometryToMap();
   }, [geometry, syncGeometryToMap]);
 
-  // Sync Retrieved NISAR Swaths to Map Source
+  // Sync Retrieved NISAR Swaths to Map Source (Self-healing)
   const syncRetrievedSwaths = useCallback(() => {
-    if (!mapRef.current) return;
-    const source = mapRef.current.getSource('nisar-retrieved-swaths-source');
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) return;
+
+    if (!map.getSource('nisar-retrieved-swaths-source')) {
+      map.addSource('nisar-retrieved-swaths-source', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+    }
+
+    if (!map.getLayer('nisar-retrieved-swaths-fill')) {
+      map.addLayer({
+        id: 'nisar-retrieved-swaths-fill',
+        type: 'fill',
+        source: 'nisar-retrieved-swaths-source',
+        paint: {
+          'fill-color': '#0891B2',
+          'fill-opacity': 0.12
+        }
+      });
+    }
+
+    if (!map.getLayer('nisar-retrieved-swaths-stroke')) {
+      map.addLayer({
+        id: 'nisar-retrieved-swaths-stroke',
+        type: 'line',
+        source: 'nisar-retrieved-swaths-source',
+        paint: {
+          'line-color': '#0E7490',
+          'line-width': 2.0,
+          'line-dasharray': [3, 2]
+        }
+      });
+    }
+
+    const source = map.getSource('nisar-retrieved-swaths-source');
     if (!source) return;
 
     if (retrievedSwaths && retrievedSwaths.length > 0) {
       const features = retrievedSwaths
         .filter((s) => s?.geographicalCoverage?.coordinates)
-        .map((s, idx) => ({
+        .map((s) => ({
           type: 'Feature',
           properties: {
             title: s.productIdentifier,
@@ -422,10 +498,50 @@ export default function InteractiveMap({
     syncRetrievedSwaths();
   }, [retrievedSwaths, syncRetrievedSwaths]);
 
-  // Sync Change Mask to Map Source
+  // Sync Change Mask to Map Source (Self-healing)
   const syncChangeMask = useCallback(() => {
-    if (!mapRef.current) return;
-    const source = mapRef.current.getSource('radar-change-mask-source');
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) return;
+
+    if (!map.getSource('radar-change-mask-source')) {
+      map.addSource('radar-change-mask-source', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+    }
+
+    if (!map.getLayer('radar-change-mask-fill')) {
+      map.addLayer({
+        id: 'radar-change-mask-fill',
+        type: 'fill',
+        source: 'radar-change-mask-source',
+        layout: {
+          visibility: showChangeMask ? 'visible' : 'none'
+        },
+        paint: {
+          'fill-color': '#0891B2',
+          'fill-opacity': 0.42
+        }
+      });
+    }
+
+    if (!map.getLayer('radar-change-mask-stroke')) {
+      map.addLayer({
+        id: 'radar-change-mask-stroke',
+        type: 'line',
+        source: 'radar-change-mask-source',
+        layout: {
+          visibility: showChangeMask ? 'visible' : 'none'
+        },
+        paint: {
+          'line-color': '#0891B2',
+          'line-width': 2.2
+        }
+      });
+    }
+
+    const source = map.getSource('radar-change-mask-source');
     if (!source) return;
 
     if (changeMaskGeoJSON && changeMaskGeoJSON.features) {
@@ -436,7 +552,7 @@ export default function InteractiveMap({
         features: []
       });
     }
-  }, [changeMaskGeoJSON]);
+  }, [changeMaskGeoJSON, showChangeMask]);
 
   useEffect(() => {
     syncChangeMask();
