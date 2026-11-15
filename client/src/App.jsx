@@ -8,6 +8,7 @@ import ComparisonToolbar from './components/ComparisonToolbar';
 import ProcessingResultsPanel from './components/ProcessingResultsPanel';
 import DataStatus from './components/DataStatus';
 import Footer from './components/Footer';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [currentCenter, setCurrentCenter] = useState({ lat: 20, lng: 0 });
@@ -134,29 +135,31 @@ export default function App() {
       {/* Main Map Container with Minimal Floating Overlays */}
       <main className="relative flex-1 w-full min-h-0 overflow-hidden">
         {/* Full-bleed Interactive Map with Drawing, Swaths, Change Mask & Swipe */}
-        <InteractiveMap
-          basemap={basemap}
-          layers={layers}
-          showGraticule={showGraticule}
-          onMapMove={handleMapMove}
-          mapInstanceRef={mapInstanceRef}
-          drawMode={drawMode}
-          onDrawModeChange={setDrawMode}
-          geometry={geometry}
-          onGeometryChange={(newGeom) => {
-            setGeometry(newGeom);
-            setRadarResults(null);
-          }}
-          isEditing={isEditing}
-          retrievedSwaths={retrievedSwaths}
-          changeMaskGeoJSON={radarResults?.changeMask}
-          showChangeMask={showChangeMask}
-          comparisonMode={comparisonMode}
-          swipePosition={swipePosition}
-          onChangeSwipePosition={setSwipePosition}
-          firstObservation={radarResults?.observations?.baseline}
-          secondObservation={radarResults?.observations?.target}
-        />
+        <ErrorBoundary>
+          <InteractiveMap
+            basemap={basemap}
+            layers={layers}
+            showGraticule={showGraticule}
+            onMapMove={handleMapMove}
+            mapInstanceRef={mapInstanceRef}
+            drawMode={drawMode}
+            onDrawModeChange={setDrawMode}
+            geometry={geometry}
+            onGeometryChange={(newGeom) => {
+              setGeometry(newGeom);
+              setRadarResults(null);
+            }}
+            isEditing={isEditing}
+            retrievedSwaths={retrievedSwaths}
+            changeMaskGeoJSON={radarResults?.changeMask}
+            showChangeMask={showChangeMask}
+            comparisonMode={comparisonMode}
+            swipePosition={swipePosition}
+            onChangeSwipePosition={setSwipePosition}
+            firstObservation={radarResults?.observations?.baseline}
+            secondObservation={radarResults?.observations?.target}
+          />
+        </ErrorBoundary>
 
         {/* Floating Controls Sidebar / Stack (Top-Left) */}
         <div className="absolute top-4 left-4 z-10 w-72 sm:w-80 flex flex-col gap-2 pointer-events-auto max-h-[calc(100vh-6.5rem)] overflow-y-auto pr-1">
