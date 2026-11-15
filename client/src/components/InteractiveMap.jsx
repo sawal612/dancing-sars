@@ -75,7 +75,9 @@ export default function InteractiveMap({
   swipePosition = 50,
   onChangeSwipePosition,
   firstObservation = null,
-  secondObservation = null
+  secondObservation = null,
+  activeTimestep = 8,
+  timelineMode = 'accumulated'
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -95,6 +97,12 @@ export default function InteractiveMap({
   const changeMaskRef = useRef(changeMaskGeoJSON);
   changeMaskRef.current = changeMaskGeoJSON;
 
+  const activeTimestepRef = useRef(activeTimestep);
+  activeTimestepRef.current = activeTimestep;
+
+  const timelineModeRef = useRef(timelineMode);
+  timelineModeRef.current = timelineMode;
+
   const retrievedSwathsRef = useRef(retrievedSwaths);
   retrievedSwathsRef.current = retrievedSwaths;
 
@@ -102,9 +110,9 @@ export default function InteractiveMap({
   useEffect(() => {
     if (mapRef.current) return;
 
-    const initialLon = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LON || '0');
-    const initialLat = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LAT || '20');
-    const initialZoom = parseFloat(import.meta.env.VITE_MAP_DEFAULT_ZOOM || '2');
+    const initialLon = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LON || '150.60');
+    const initialLat = parseFloat(import.meta.env.VITE_MAP_DEFAULT_CENTER_LAT || '-34.72');
+    const initialZoom = parseFloat(import.meta.env.VITE_MAP_DEFAULT_ZOOM || '10');
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
@@ -192,7 +200,14 @@ export default function InteractiveMap({
         if (!map.getSource('user-aoi-source')) {
           map.addSource('user-aoi-source', {
             type: 'geojson',
-            data: {
+            data: geometryRef.current?.coordinates?.length > 0 ? {
+              type: 'FeatureCollection',
+              features: [{
+                type: 'Feature',
+                properties: { aoi: 'Monitored Observation Area' },
+                geometry: geometryRef.current
+              }]
+            } : {
               type: 'FeatureCollection',
               features: []
             }
@@ -204,7 +219,7 @@ export default function InteractiveMap({
             source: 'user-aoi-source',
             paint: {
               'fill-color': '#0891B2',
-              'fill-opacity': 0.04
+              'fill-opacity': 0.18
             }
           });
 
@@ -284,13 +299,24 @@ export default function InteractiveMap({
           });
         }
 
-        // 6. Radar Detected Change Mask Layer (Cyan)
+        // 6. Radar Detected Change Mask Layer (Flood Inundation)
         if (!map.getSource('radar-change-mask-source')) {
+          let initialMaskFeatures = changeMaskRef.current?.features || [];
+          if (activeTimestepRef.current != null && initialMaskFeatures.length > 0) {
+            initialMaskFeatures = initialMaskFeatures.filter((f) => {
+              const t = f.properties?.timestep;
+              if (t == null) return true;
+              return timelineModeRef.current === 'snapshot'
+                ? t === activeTimestepRef.current
+                : t <= activeTimestepRef.current;
+            });
+          }
+
           map.addSource('radar-change-mask-source', {
             type: 'geojson',
             data: {
               type: 'FeatureCollection',
-              features: []
+              features: initialMaskFeatures
             }
           });
 
@@ -299,11 +325,11 @@ export default function InteractiveMap({
             type: 'fill',
             source: 'radar-change-mask-source',
             layout: {
-              visibility: showChangeMask ? 'visible' : 'none'
+              visibility: 'visible'
             },
             paint: {
-              'fill-color': '#00FFFF',
-              'fill-opacity': 0.8
+              'fill-color': '#1D70B8',
+              'fill-opacity': 0.85
             }
           });
 
@@ -312,11 +338,11 @@ export default function InteractiveMap({
             type: 'line',
             source: 'radar-change-mask-source',
             layout: {
-              visibility: showChangeMask ? 'visible' : 'none'
+              visibility: 'visible'
             },
             paint: {
-              'line-color': '#0891B2',
-              'line-width': 2.5
+              'line-color': '#0B4F8A',
+              'line-width': 2.0
             }
           });
         }
@@ -401,34 +427,42 @@ export default function InteractiveMap({
   // Sync Geometry Data to Map Source
   const syncGeometryToMap = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
-    try {
-      const source = map.getSource('user-aoi-source');
-      if (!source) return;
+    const doSync = () => {
+      try {
+        const source = map.getSource('user-aoi-source');
+        if (!source) return;
 
-      if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
-        source.setData({
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              properties: { aoi: 'Selected Observation AOI' },
-              geometry: {
-                type: 'Polygon',
-                coordinates: geometry.coordinates
+        if (geometry && geometry.coordinates && geometry.coordinates.length > 0) {
+          source.setData({
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                properties: { aoi: 'Selected Observation AOI' },
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: geometry.coordinates
+                }
               }
-            }
-          ]
-        });
-      } else {
-        source.setData({
-          type: 'FeatureCollection',
-          features: []
-        });
+            ]
+          });
+        } else {
+          source.setData({
+            type: 'FeatureCollection',
+            features: []
+          });
+        }
+      } catch (err) {
+        console.warn('[MapLibre] syncGeometry error:', err.message);
       }
-    } catch (err) {
-      console.warn('[MapLibre] syncGeometry error:', err.message);
+    };
+
+    if (map.isStyleLoaded()) {
+      doSync();
+    } else {
+      map.once('style.load', doSync);
     }
   }, [geometry]);
 
@@ -439,40 +473,48 @@ export default function InteractiveMap({
   // Sync Retrieved NISAR Swaths to Map Source
   const syncRetrievedSwaths = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
-    try {
-      const source = map.getSource('nisar-retrieved-swaths-source');
-      if (!source) return;
+    const doSync = () => {
+      try {
+        const source = map.getSource('nisar-retrieved-swaths-source');
+        if (!source) return;
 
-      if (retrievedSwaths && retrievedSwaths.length > 0) {
-        const features = retrievedSwaths
-          .filter((s) => s?.geographicalCoverage?.coordinates)
-          .map((s) => ({
-            type: 'Feature',
-            properties: {
-              title: s.productIdentifier,
-              sensor: s.sensor,
-              date: s.acquisitionDate,
-            },
-            geometry: {
-              type: 'Polygon',
-              coordinates: s.geographicalCoverage.coordinates,
-            },
-          }));
+        if (retrievedSwaths && retrievedSwaths.length > 0) {
+          const features = retrievedSwaths
+            .filter((s) => s?.geographicalCoverage?.coordinates)
+            .map((s) => ({
+              type: 'Feature',
+              properties: {
+                title: s.productIdentifier,
+                sensor: s.sensor,
+                date: s.acquisitionDate,
+              },
+              geometry: {
+                type: 'Polygon',
+                coordinates: s.geographicalCoverage.coordinates,
+              },
+            }));
 
-        source.setData({
-          type: 'FeatureCollection',
-          features,
-        });
-      } else {
-        source.setData({
-          type: 'FeatureCollection',
-          features: [],
-        });
+          source.setData({
+            type: 'FeatureCollection',
+            features,
+          });
+        } else {
+          source.setData({
+            type: 'FeatureCollection',
+            features: [],
+          });
+        }
+      } catch (err) {
+        console.warn('[MapLibre] syncSwaths error:', err.message);
       }
-    } catch (err) {
-      console.warn('[MapLibre] syncSwaths error:', err.message);
+    };
+
+    if (map.isStyleLoaded()) {
+      doSync();
+    } else {
+      map.once('style.load', doSync);
     }
   }, [retrievedSwaths]);
 
@@ -483,47 +525,74 @@ export default function InteractiveMap({
   // Sync Change Mask to Map Source
   const syncChangeMask = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
-    try {
-      const source = map.getSource('radar-change-mask-source');
-      if (!source) return;
+    const doSync = () => {
+      try {
+        const source = map.getSource('radar-change-mask-source');
+        if (!source) return;
 
-      if (changeMaskGeoJSON && changeMaskGeoJSON.features && changeMaskGeoJSON.features.length > 0) {
-        source.setData(changeMaskGeoJSON);
-        try {
-          if (map.getLayer('radar-change-mask-fill')) map.moveLayer('radar-change-mask-fill');
-          if (map.getLayer('radar-change-mask-stroke')) map.moveLayer('radar-change-mask-stroke');
-        } catch {}
-      } else {
-        source.setData({
-          type: 'FeatureCollection',
-          features: []
-        });
+        if (changeMaskGeoJSON && changeMaskGeoJSON.features && changeMaskGeoJSON.features.length > 0) {
+          let filteredFeatures = changeMaskGeoJSON.features;
+          if (activeTimestep != null) {
+            filteredFeatures = filteredFeatures.filter((f) => {
+              const t = f.properties?.timestep;
+              if (t == null) return true;
+              return timelineMode === 'snapshot' ? t === activeTimestep : t <= activeTimestep;
+            });
+          }
+
+          source.setData({
+            type: 'FeatureCollection',
+            features: filteredFeatures
+          });
+          try {
+            if (map.getLayer('radar-change-mask-fill')) map.moveLayer('radar-change-mask-fill');
+            if (map.getLayer('radar-change-mask-stroke')) map.moveLayer('radar-change-mask-stroke');
+          } catch {}
+        } else {
+          source.setData({
+            type: 'FeatureCollection',
+            features: []
+          });
+        }
+      } catch (err) {
+        console.warn('[MapLibre] syncChangeMask error:', err.message);
       }
-    } catch (err) {
-      console.warn('[MapLibre] syncChangeMask error:', err.message);
+    };
+
+    if (map.isStyleLoaded()) {
+      doSync();
+    } else {
+      map.once('style.load', doSync);
     }
-  }, [changeMaskGeoJSON]);
+  }, [changeMaskGeoJSON, activeTimestep, timelineMode]);
 
   useEffect(() => {
     syncChangeMask();
-  }, [changeMaskGeoJSON, syncChangeMask]);
+  }, [changeMaskGeoJSON, activeTimestep, timelineMode, syncChangeMask]);
 
   // Update Change Mask visibility
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !mapRef.current.isStyleLoaded()) return;
     const visibility = showChangeMask ? 'visible' : 'none';
-    if (mapRef.current.getLayer('radar-change-mask-fill')) {
-      mapRef.current.setLayoutProperty('radar-change-mask-fill', 'visibility', visibility);
-    }
-    if (mapRef.current.getLayer('radar-change-mask-stroke')) {
-      mapRef.current.setLayoutProperty('radar-change-mask-stroke', 'visibility', visibility);
+    try {
+      if (mapRef.current.getLayer('radar-change-mask-fill')) {
+        mapRef.current.setLayoutProperty('radar-change-mask-fill', 'visibility', visibility);
+      }
+      if (mapRef.current.getLayer('radar-change-mask-stroke')) {
+        mapRef.current.setLayoutProperty('radar-change-mask-stroke', 'visibility', visibility);
+      }
+    } catch (err) {
+      console.warn('[MapLibre] visibility update warning:', err.message);
     }
   }, [showChangeMask]);
 
-  // Update Basemap Style dynamically
+  // Update Basemap Style dynamically (skip initial mount to prevent layer destruction)
+  const basemapRef = useRef(basemap);
   useEffect(() => {
+    if (basemapRef.current === basemap) return;
+    basemapRef.current = basemap;
     if (!mapRef.current) return;
     const styleObj = BASEMAP_STYLES[basemap]?.url;
     if (styleObj) {

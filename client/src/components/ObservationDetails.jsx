@@ -94,7 +94,7 @@ export default function ObservationDetails({ observation, label, role = 'baselin
         <div>
           <span className="text-[10px] text-secondaryText block">Sensor &amp; Band</span>
           <span className="font-medium text-primaryText font-sans">
-            {candidate.sensor} ({candidate.frequencyBand.split(' ')[0]})
+            {candidate.sensor || 'L-SAR'} ({candidate.frequencyBand ? candidate.frequencyBand.split(' ')[0] : 'L-band'})
           </span>
         </div>
       </div>
@@ -104,13 +104,13 @@ export default function ObservationDetails({ observation, label, role = 'baselin
         <div>
           <span className="text-[10px] text-secondaryText block">Orbit / Track</span>
           <span className="font-medium text-primaryText font-mono">
-            Track {candidate.orbit.track || 'N/A'} • {candidate.orbit.flightDirection}
+            Track {candidate.orbit?.track || 'N/A'} • {candidate.orbit?.flightDirection || 'ASCENDING'}
           </span>
         </div>
         <div>
           <span className="text-[10px] text-secondaryText block">Polarization</span>
           <span className="font-medium text-primaryText">
-            {candidate.polarization}
+            {candidate.polarization || 'Dual-Pol (HH/HV)'}
           </span>
         </div>
       </div>
@@ -137,8 +137,8 @@ export default function ObservationDetails({ observation, label, role = 'baselin
 
       {/* Data Source & Access Reference */}
       <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
-        <span className="text-secondaryText truncate max-w-[170px]" title={candidate.dataSource}>
-          Source: {candidate.dataSource.split(' / ')[0]}
+        <span className="text-secondaryText truncate max-w-[170px]" title={candidate.dataSource || 'NASA ASF DAAC'}>
+          Source: {candidate.dataSource ? candidate.dataSource.split(' / ')[0] : 'NASA ASF DAAC'}
         </span>
         <div className="flex items-center gap-2">
           {candidate.productReferences?.catalogUrl && (

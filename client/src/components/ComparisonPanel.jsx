@@ -31,6 +31,16 @@ import ObservationDetails from './ObservationDetails';
 
 const DEFAULT_SAMPLES = [
   {
+    id: 'southeastern_australia_flood',
+    name: 'Southeastern Australia (Wollongong & Shoalhaven River)',
+    description: 'Severe regional flooding event along Shoalhaven River, Nowra delta, Kangaroo Valley, and Illawarra coastal plain.',
+    bbox: [150.25, -35.05, 150.95, -34.40],
+    suggestedDates: { first: '2026-06-29', second: '2026-07-03' },
+    verifiedProducts: 'L2 GCOV Dual-Pol (HH/HV)',
+    eventName: 'SOUTHEASTERN AUSTRALIA',
+    eventDuration: '29 Jun - 3 Jul (5 days)'
+  },
+  {
     id: 'north_america_calval',
     name: 'North American Calibration Swath (Mississippi Basin)',
     description: 'Hydrological validation corridor with continuous dual-pol backscatter acquisitions.',
