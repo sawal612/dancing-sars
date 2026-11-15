@@ -363,9 +363,9 @@ export default function ComparisonPanel({
   const isReadyToSearch = !dateError && (!geometry || (geoValidation.valid && !geoValidation.loading));
 
   return (
-    <div className="bg-surface border border-borderCol rounded-md shadow-sm text-xs font-sans w-72 sm:w-80 overflow-hidden">
+    <div className="bg-surface border border-borderCol rounded-md shadow-sm text-xs font-sans w-72 sm:w-80 overflow-hidden flex flex-col max-h-[calc(100vh-8.5rem)]">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-50/70 border-b border-borderCol">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50/70 border-b border-borderCol shrink-0">
         <div className="flex items-center gap-2 font-medium text-primaryText">
           <Satellite className="w-4 h-4 text-accent" />
           <span>NISAR Observation &amp; Selection</span>
@@ -379,7 +379,7 @@ export default function ComparisonPanel({
       </div>
 
       {isExpanded && (
-        <div className="p-3 space-y-3.5">
+        <div className="p-3 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 pr-2">
           {/* Section 1: Geographical Area Selection */}
           <div>
             <div className="flex items-center justify-between mb-1.5">

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { BASEMAP_STYLES } from './LayerControls';
 
@@ -250,8 +250,8 @@ export default function InteractiveMap({
             type: 'fill',
             source: 'user-aoi-preview-source',
             paint: {
-              'fill-color': '#06B6D4',
-              'fill-opacity': 0.1
+              'fill-color': '#F59E0B',
+              'fill-opacity': 0.25
             }
           });
 
@@ -260,9 +260,9 @@ export default function InteractiveMap({
             type: 'line',
             source: 'user-aoi-preview-source',
             paint: {
-              'line-color': '#0891B2',
-              'line-width': 1.8,
-              'line-dasharray': [2, 2]
+              'line-color': '#F59E0B',
+              'line-width': 2.5,
+              'line-dasharray': [3, 2]
             }
           });
         }
@@ -625,7 +625,9 @@ export default function InteractiveMap({
     }
   };
 
-  // Interactive Drawing Handlers
+  // Interactive Drawing Handlers (Rectangle & Polygon)
+  const [polygonPointCount, setPolygonPointCount] = useState(0);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -640,8 +642,16 @@ export default function InteractiveMap({
       map.doubleClickZoom.enable();
       clearPreview();
       drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+      setPolygonPointCount(0);
       return;
     }
+
+    const bringPreviewToTop = () => {
+      try {
+        if (map.getLayer('user-aoi-preview-fill')) map.moveLayer('user-aoi-preview-fill');
+        if (map.getLayer('user-aoi-preview-stroke')) map.moveLayer('user-aoi-preview-stroke');
+      } catch {}
+    };
 
     // CLICK HANDLER
     const handleMapClick = (e) => {
@@ -649,11 +659,12 @@ export default function InteractiveMap({
 
       if (drawMode === 'rectangle') {
         if (!drawingStateRef.current.isDrawing) {
-          // First corner click
+          // Corner 1
           drawingStateRef.current.startPoint = clickCoord;
           drawingStateRef.current.isDrawing = true;
+          bringPreviewToTop();
         } else {
-          // Second corner click -> finalize rectangle
+          // Corner 2 -> Finalize rectangle
           const start = drawingStateRef.current.startPoint;
           const end = clickCoord;
           const minLon = Math.min(start[0], end[0]);
@@ -661,42 +672,46 @@ export default function InteractiveMap({
           const minLat = Math.min(start[1], end[1]);
           const maxLat = Math.max(start[1], end[1]);
 
-          const rectCoords = [
-            [minLon, minLat],
-            [maxLon, minLat],
-            [maxLon, maxLat],
-            [minLon, maxLat],
-            [minLon, minLat]
-          ];
+          // Prevent zero-size rectangle
+          if (Math.abs(maxLon - minLon) > 0.0001 && Math.abs(maxLat - minLat) > 0.0001) {
+            const rectCoords = [
+              [minLon, minLat],
+              [maxLon, minLat],
+              [maxLon, maxLat],
+              [minLon, maxLat],
+              [minLon, minLat]
+            ];
 
-          clearPreview();
-          drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+            clearPreview();
+            drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
 
-          if (onGeometryChange) {
-            onGeometryChange({
-              type: 'Polygon',
-              coordinates: [rectCoords]
-            });
-          }
-          if (onDrawModeChange) {
-            onDrawModeChange('none');
+            if (onGeometryChange) {
+              onGeometryChange({
+                type: 'Polygon',
+                coordinates: [rectCoords]
+              });
+            }
+            if (onDrawModeChange) {
+              onDrawModeChange('none');
+            }
           }
         }
       } else if (drawMode === 'polygon') {
         const pts = drawingStateRef.current.points;
 
-        // Check if clicked near first point to close (within reasonable visual threshold)
+        // Check if clicked near start point to close (within 25px)
         if (pts.length >= 3) {
           const firstPt = pts[0];
           const screenFirst = map.project(firstPt);
           const screenClick = map.project(clickCoord);
           const dist = Math.hypot(screenFirst.x - screenClick.x, screenFirst.y - screenClick.y);
 
-          if (dist < 20) {
+          if (dist < 25) {
             // Close polygon
             const closedCoords = [...pts, pts[0]];
             clearPreview();
             drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+            setPolygonPointCount(0);
 
             if (onGeometryChange) {
               onGeometryChange({
@@ -711,10 +726,12 @@ export default function InteractiveMap({
           }
         }
 
-        // Add new vertex
+        // Add vertex
         const updatedPts = [...pts, clickCoord];
         drawingStateRef.current.points = updatedPts;
         drawingStateRef.current.isDrawing = true;
+        setPolygonPointCount(updatedPts.length);
+        bringPreviewToTop();
 
         // Update preview line
         const previewSource = map.getSource('user-aoi-preview-source');
@@ -786,13 +803,14 @@ export default function InteractiveMap({
 
     // DOUBLE CLICK HANDLER (Close polygon)
     const handleDblClick = (e) => {
+      e.preventDefault();
       if (drawMode === 'polygon' && drawingStateRef.current.points.length >= 3) {
-        e.preventDefault();
         const pts = drawingStateRef.current.points;
         const closedCoords = [...pts, pts[0]];
 
         clearPreview();
         drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+        setPolygonPointCount(0);
 
         if (onGeometryChange) {
           onGeometryChange({
@@ -806,14 +824,28 @@ export default function InteractiveMap({
       }
     };
 
+    // ESCAPE KEY TO CANCEL
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        clearPreview();
+        drawingStateRef.current = { startPoint: null, points: [], isDrawing: false };
+        setPolygonPointCount(0);
+        if (onDrawModeChange) {
+          onDrawModeChange('none');
+        }
+      }
+    };
+
     map.on('click', handleMapClick);
     map.on('mousemove', handleMouseMove);
     map.on('dblclick', handleDblClick);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       map.off('click', handleMapClick);
       map.off('mousemove', handleMouseMove);
       map.off('dblclick', handleDblClick);
+      window.removeEventListener('keydown', handleKeyDown);
       canvas.style.cursor = '';
       map.doubleClickZoom.enable();
       clearPreview();
