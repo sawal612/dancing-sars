@@ -89,6 +89,15 @@ export default function InteractiveMap({
 
   const vertexMarkersRef = useRef([]);
 
+  const geometryRef = useRef(geometry);
+  geometryRef.current = geometry;
+
+  const changeMaskRef = useRef(changeMaskGeoJSON);
+  changeMaskRef.current = changeMaskGeoJSON;
+
+  const retrievedSwathsRef = useRef(retrievedSwaths);
+  retrievedSwathsRef.current = retrievedSwaths;
+
   // Initialize Map
   useEffect(() => {
     if (mapRef.current) return;
@@ -192,7 +201,7 @@ export default function InteractiveMap({
           source: 'user-aoi-source',
           paint: {
             'fill-color': '#0891B2',
-            'fill-opacity': 0.16
+            'fill-opacity': 0.04
           }
         });
 
@@ -201,9 +210,9 @@ export default function InteractiveMap({
           type: 'line',
           source: 'user-aoi-source',
           paint: {
-            'line-color': '#0891B2',
-            'line-width': 2.2,
-            'line-dasharray': [3, 1]
+            'line-color': '#0284C7',
+            'line-width': 2.5,
+            'line-dasharray': [4, 2]
           }
         });
       }
@@ -290,8 +299,8 @@ export default function InteractiveMap({
             visibility: showChangeMask ? 'visible' : 'none'
           },
           paint: {
-            'fill-color': '#0891B2',
-            'fill-opacity': 0.38
+            'fill-color': '#00FFFF',
+            'fill-opacity': 0.8
           }
         });
 
@@ -304,15 +313,40 @@ export default function InteractiveMap({
           },
           paint: {
             'line-color': '#0891B2',
-            'line-width': 2.0
+            'line-width': 2.5
           }
         });
       }
 
-      // Sync existing geometry, swaths & change mask if present
-      syncGeometryToMap();
-      syncRetrievedSwaths();
-      syncChangeMask();
+      // Immediately push existing data to newly setup sources
+      const aoiSrc = map.getSource('user-aoi-source');
+      if (aoiSrc && geometryRef.current?.coordinates?.length > 0) {
+        aoiSrc.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: { aoi: 'Selected Observation AOI' },
+            geometry: geometryRef.current
+          }]
+        });
+      }
+
+      const maskSrc = map.getSource('radar-change-mask-source');
+      if (maskSrc && changeMaskRef.current?.features?.length > 0) {
+        maskSrc.setData(changeMaskRef.current);
+      }
+
+      const swathsSrc = map.getSource('nisar-retrieved-swaths-source');
+      if (swathsSrc && retrievedSwathsRef.current?.length > 0) {
+        const feats = retrievedSwathsRef.current
+          .filter(s => s?.geographicalCoverage?.coordinates)
+          .map(s => ({
+            type: 'Feature',
+            properties: { title: s.productIdentifier, sensor: s.sensor, date: s.acquisitionDate },
+            geometry: { type: 'Polygon', coordinates: s.geographicalCoverage.coordinates }
+          }));
+        swathsSrc.setData({ type: 'FeatureCollection', features: feats });
+      }
     };
 
     // Ensure layers are setup on both load and style.load, or immediately if already loaded
@@ -362,11 +396,6 @@ export default function InteractiveMap({
   const syncGeometryToMap = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    if (!map.isStyleLoaded()) {
-      map.once('idle', () => syncGeometryToMap());
-      return;
-    }
 
     if (!map.getSource('user-aoi-source')) {
       map.addSource('user-aoi-source', {
@@ -433,11 +462,6 @@ export default function InteractiveMap({
   const syncRetrievedSwaths = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    if (!map.isStyleLoaded()) {
-      map.once('idle', () => syncRetrievedSwaths());
-      return;
-    }
 
     if (!map.getSource('nisar-retrieved-swaths-source')) {
       map.addSource('nisar-retrieved-swaths-source', {
@@ -511,11 +535,6 @@ export default function InteractiveMap({
     const map = mapRef.current;
     if (!map) return;
 
-    if (!map.isStyleLoaded()) {
-      map.once('idle', () => syncChangeMask());
-      return;
-    }
-
     if (!map.getSource('radar-change-mask-source')) {
       map.addSource('radar-change-mask-source', {
         type: 'geojson',
@@ -533,7 +552,7 @@ export default function InteractiveMap({
         },
         paint: {
           'fill-color': '#00FFFF', // Vivid Fluorescent Electric Cyan
-          'fill-opacity': 0.72
+          'fill-opacity': 0.85
         }
       });
     }
@@ -580,7 +599,7 @@ export default function InteractiveMap({
 
   // Update Change Mask visibility
   useEffect(() => {
-    if (!mapRef.current || !mapRef.current.isStyleLoaded()) return;
+    if (!mapRef.current) return;
     const visibility = showChangeMask ? 'visible' : 'none';
     if (mapRef.current.getLayer('radar-change-mask-fill')) {
       mapRef.current.setLayoutProperty('radar-change-mask-fill', 'visibility', visibility);
