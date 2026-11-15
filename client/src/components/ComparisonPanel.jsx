@@ -78,16 +78,18 @@ export default function ComparisonPanel({
   onObservationsDiscovered,
   onLoadSampleRegion,
   onProcessingComplete,
-  isProcessingRadar = false
+  isProcessingRadar = false,
+  nisarPairResult: externalPairResult,
+  onPairResultChange
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   // Change category
   const [changeCategory] = useState('flood_surface_water');
 
-  // Dates
-  const defaultFirst = '2025-10-29';
-  const defaultSecond = '2025-11-09';
+  // Dates matching active hydrological event window
+  const defaultFirst = '2026-06-29';
+  const defaultSecond = '2026-07-03';
 
   const [firstDate, setFirstDate] = useState(defaultFirst);
   const [secondDate, setSecondDate] = useState(defaultSecond);
@@ -98,7 +100,12 @@ export default function ComparisonPanel({
 
   // NISAR Discovery state
   const [isSearchingNisar, setIsSearchingNisar] = useState(false);
-  const [nisarPairResult, setNisarPairResult] = useState(null);
+  const [internalPairResult, setInternalPairResult] = useState(null);
+  const nisarPairResult = externalPairResult !== undefined ? externalPairResult : internalPairResult;
+  const setNisarPairResult = (val) => {
+    setInternalPairResult(val);
+    if (onPairResultChange) onPairResultChange(val);
+  };
   const [toleranceDays, setToleranceDays] = useState(5);
   const [sampleRegions, setSampleRegions] = useState(DEFAULT_SAMPLES);
   const resultsRef = useRef(null);

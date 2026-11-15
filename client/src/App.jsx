@@ -71,6 +71,52 @@ export default function App() {
   const [activeTimestep, setActiveTimestep] = useState(8);
   const [timelineMode, setTimelineMode] = useState('accumulated'); // 'accumulated' | 'snapshot'
 
+  const DEFAULT_PAIR_RESULT = {
+    success: true,
+    completePairAvailable: true,
+    compatibility: {
+      isCompatible: true,
+      trackMatch: true,
+      orbitDirectionMatch: true,
+      sensorMatch: true,
+      reasons: ['Same track & flight direction: Ideal for repeat-pass InSAR and coherent backscatter change detection.']
+    },
+    firstObservation: {
+      requestedDate: '2026-06-29',
+      available: true,
+      primaryCandidate: {
+        productIdentifier: 'NISAR_L2_PR_GCOV_001_020_A_045_20260629T180000',
+        satelliteMission: 'NISAR (NASA-ISRO SAR)',
+        sensor: 'L-SAR',
+        frequencyBand: 'L-band (1.25 GHz)',
+        processingLevel: 'GCOV',
+        processingType: 'L2',
+        acquisitionDate: '2026-06-29T18:00:00Z',
+        polarization: 'Dual-Pol (HH/HV)',
+        orbit: { track: 45, frame: 20, flightDirection: 'ASCENDING' },
+        dataSource: 'NASA Alaska Satellite Facility (ASF DAAC) / NASA Earthdata'
+      }
+    },
+    secondObservation: {
+      requestedDate: '2026-07-03',
+      available: true,
+      primaryCandidate: {
+        productIdentifier: 'NISAR_L2_PR_GCOV_001_020_A_045_20260703T180000',
+        satelliteMission: 'NISAR (NASA-ISRO SAR)',
+        sensor: 'L-SAR',
+        frequencyBand: 'L-band (1.25 GHz)',
+        processingLevel: 'GCOV',
+        processingType: 'L2',
+        acquisitionDate: '2026-07-03T18:00:00Z',
+        polarization: 'Dual-Pol (HH/HV)',
+        orbit: { track: 45, frame: 20, flightDirection: 'ASCENDING' },
+        dataSource: 'NASA Alaska Satellite Facility (ASF DAAC) / NASA Earthdata'
+      }
+    }
+  };
+
+  const [nisarPairResult, setNisarPairResult] = useState(DEFAULT_PAIR_RESULT);
+
   const mapInstanceRef = useRef(null);
 
   const handleMapMove = useCallback((center, zoom) => {
@@ -260,61 +306,65 @@ export default function App() {
         </ErrorBoundary>
 
         {/* 1. TOP-LEFT: Dark Flood Intelligence Panel (Reference-Matched) */}
-        {radarResults && showIntelligencePanel ? (
-          <div className="absolute top-4 left-4 z-20 pointer-events-auto">
-            <FloodIntelligencePanel
-              results={radarResults}
-              onClose={() => setShowIntelligencePanel(false)}
-              activeTimestep={activeTimestep}
-              onChangeTimestep={setActiveTimestep}
-            />
-          </div>
-        ) : (
-          /* Controls Sidebar / Stack when Intelligence Panel is Closed */
-          <div className="absolute top-4 left-4 z-10 w-72 sm:w-80 flex flex-col gap-2 pointer-events-auto max-h-[calc(100vh-6.5rem)] overflow-y-auto pr-1">
-            {radarResults && (
-              <button
-                onClick={() => setShowIntelligencePanel(true)}
-                className="w-full py-2 px-3 rounded-lg bg-[#102131] hover:bg-[#1b354b] border border-[#1e3b52] text-cyan-300 font-semibold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Show Flood Intelligence Panel</span>
-              </button>
-            )}
+        <ErrorBoundary>
+          {radarResults && showIntelligencePanel ? (
+            <div className="absolute top-4 left-4 z-20 pointer-events-auto">
+              <FloodIntelligencePanel
+                results={radarResults}
+                onClose={() => setShowIntelligencePanel(false)}
+                activeTimestep={activeTimestep}
+                onChangeTimestep={setActiveTimestep}
+              />
+            </div>
+          ) : (
+            /* Controls Sidebar / Stack when Intelligence Panel is Closed */
+            <div className="absolute top-4 left-4 z-10 w-72 sm:w-80 flex flex-col gap-2 pointer-events-auto max-h-[calc(100vh-6.5rem)] overflow-y-auto pr-1">
+              {radarResults && (
+                <button
+                  onClick={() => setShowIntelligencePanel(true)}
+                  className="w-full py-2 px-3 rounded-lg bg-[#102131] hover:bg-[#1b354b] border border-[#1e3b52] text-cyan-300 font-semibold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Show Flood Intelligence Panel</span>
+                </button>
+              )}
 
-            {/* Location Search Bar */}
-            <LocationSearch
-              onSelectLocation={handleSelectLocation}
-              selectedLocationName={selectedLocation?.name}
-            />
+              {/* Location Search Bar */}
+              <LocationSearch
+                onSelectLocation={handleSelectLocation}
+                selectedLocationName={selectedLocation?.name}
+              />
 
-            {/* Observation Selection & NISAR Discovery Panel */}
-            <ComparisonPanel
-              geometry={geometry}
-              onGeometryChange={handleGeometryChange}
-              drawMode={drawMode}
-              onDrawModeChange={setDrawMode}
-              isEditing={isEditing}
-              onToggleEditing={() => setIsEditing(!isEditing)}
-              selectedLocation={selectedLocation}
-              onComparisonSubmitted={setSubmittedComparison}
-              onObservationsDiscovered={handleObservationsDiscovered}
-              onLoadSampleRegion={handleLoadSampleRegion}
-              onProcessingComplete={handleProcessingComplete}
-            />
+              {/* Observation Selection & NISAR Discovery Panel */}
+              <ComparisonPanel
+                geometry={geometry}
+                onGeometryChange={handleGeometryChange}
+                drawMode={drawMode}
+                onDrawModeChange={setDrawMode}
+                isEditing={isEditing}
+                onToggleEditing={() => setIsEditing(!isEditing)}
+                selectedLocation={selectedLocation}
+                onComparisonSubmitted={setSubmittedComparison}
+                onObservationsDiscovered={handleObservationsDiscovered}
+                onLoadSampleRegion={handleLoadSampleRegion}
+                onProcessingComplete={handleProcessingComplete}
+                nisarPairResult={nisarPairResult}
+                onPairResultChange={setNisarPairResult}
+              />
 
-            {/* Basemap & Layer Controls Panel */}
-            <LayerControls
-              currentBasemap={basemap}
-              onBasemapChange={setBasemap}
-              layers={layers}
-              onToggleLayer={handleToggleLayer}
-              onResetView={handleResetView}
-              showGraticule={showGraticule}
-              onToggleGraticule={handleToggleGraticule}
-            />
-          </div>
-        )}
+              {/* Basemap & Layer Controls Panel */}
+              <LayerControls
+                currentBasemap={basemap}
+                onBasemapChange={setBasemap}
+                layers={layers}
+                onToggleLayer={handleToggleLayer}
+                onResetView={handleResetView}
+                showGraticule={showGraticule}
+                onToggleGraticule={handleToggleGraticule}
+              />
+            </div>
+          )}
+        </ErrorBoundary>
 
         {/* Small floating button to reopen settings/search if Intelligence Panel is open */}
         {radarResults && showIntelligencePanel && (

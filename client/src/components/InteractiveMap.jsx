@@ -448,6 +448,12 @@ export default function InteractiveMap({
               }
             ]
           });
+          try {
+            if (map.getLayer('user-aoi-fill')) map.moveLayer('user-aoi-fill');
+            if (map.getLayer('radar-change-mask-fill')) map.moveLayer('radar-change-mask-fill');
+            if (map.getLayer('radar-change-mask-stroke')) map.moveLayer('radar-change-mask-stroke');
+            if (map.getLayer('user-aoi-stroke')) map.moveLayer('user-aoi-stroke');
+          } catch {}
         } else {
           source.setData({
             type: 'FeatureCollection',
@@ -549,6 +555,7 @@ export default function InteractiveMap({
           try {
             if (map.getLayer('radar-change-mask-fill')) map.moveLayer('radar-change-mask-fill');
             if (map.getLayer('radar-change-mask-stroke')) map.moveLayer('radar-change-mask-stroke');
+            if (map.getLayer('user-aoi-stroke')) map.moveLayer('user-aoi-stroke');
           } catch {}
         } else {
           source.setData({
